@@ -1,0 +1,325 @@
+[18:57:25] [INFO   ] Bot ready: End#7536
+[18:57:25] [INFO   ] Emoji loaded: loading -> <a:loading:1558490464464806020>
+[18:57:25] [INFO   ] Emoji loaded: verified -> <a:verified:1558490473583087706>
+[18:57:25] [INFO   ] Emoji loaded: questicon -> <:questicon3d17:1558495136940425317>
+[18:57:25] [INFO   ] Emoji loaded: statusonline30 -> <:statusonline30:1558495192225554583>
+[18:57:25] [INFO   ] Emoji loaded: statusmajor -> <:statusmajor:1558495227893776434>
+[18:57:25] [INFO   ] Emoji loaded: moon2 -> <a:moon2:1558793807405776937>
+[18:57:25] [INFO   ] Emoji loaded: animated -> <a:Animated:1558793841002160258>
+[18:57:25] [INFO   ] Total emojis loaded: 7/7
+[18:57:25] [INFO   ] Configuration: max_concurrent=50
+[18:57:25] [INFO   ] Registered users: 0
+[18:57:59] [INFO   ] Panel posted in #admin-dashboard
+[18:58:17] [INFO   ] Token registered: 1206356786400206860 (end_proxy)
+[18:58:39] [INFO   ] Session started: end_proxy (ID: 1206356786400206860) — active: 1
+[18:58:42] [DEBUG  ] [GET] users/@me -> 200
+[18:58:44] [DEBUG  ] [GET] quests/@me -> 200
+[18:58:44] [INFO   ] Found 0 automatable, 0 pending claim
+[18:58:45] [INFO   ] Session ended: user 1206356786400206860 — active: 0
+[18:59:40] [INFO   ] Cleared 26 DM messages for end_proxy
+[19:00:05] [INFO   ] Cleared 11 DM messages for dariusg9958
+[19:00:07] [INFO   ] Token registered: 803876587376214046 (dariusg9958)
+[19:00:18] [INFO   ] Cleared 2 DM messages for dariusg9958
+[19:00:22] [INFO   ] Session started: dariusg9958 (ID: 803876587376214046) — active: 1
+[19:00:23] [DEBUG  ] [GET] users/@me -> 200
+[19:00:24] [DEBUG  ] [GET] quests/@me -> 200
+[19:00:24] [INFO   ] Found 8 automatable, 1 pending claim
+[19:00:27] [DEBUG  ] [POST] quests/1547647018090893312/complete -> 404
+[19:00:27] [DEBUG  ] [POST] quests/1547647018090893312/claim -> 404
+[19:00:27] [INFO   ] Not claimed: ROR2 Hallowed Concepts
+[19:00:28] [INFO   ] Processing quest 1/8: March of Giants Playtest
+[19:00:28] [INFO   ] PLAY: March of Giants Playtest
+[19:01:10] [INFO   ] Admin board started in #admin-dashboard
+[19:07:24] [INFO   ] Session ended: user 803876587376214046 — active: 0
+[19:07:34] [INFO   ] Bot ready: End#7536
+[19:07:34] [INFO   ] Emoji loaded: loading -> <a:loading:1558490464464806020>
+[19:07:34] [INFO   ] Emoji loaded: verified -> <a:verified:1558490473583087706>
+[19:07:34] [INFO   ] Emoji loaded: questicon -> <:questicon3d17:1558495136940425317>
+[19:07:34] [INFO   ] Emoji loaded: statusonline30 -> <:statusonline30:1558495192225554583>
+[19:07:34] [INFO   ] Emoji loaded: statusmajor -> <:statusmajor:1558495227893776434>
+[19:07:34] [INFO   ] Emoji loaded: moon2 -> <a:moon2:1558793807405776937>
+[19:07:34] [INFO   ] Emoji loaded: animated -> <a:Animated:1558793841002160258>
+[19:07:34] [INFO   ] Total emojis loaded: 7/7
+[19:07:34] [INFO   ] Bot activity: Doing nothing but shits "Quest Automated"
+[19:07:34] [INFO   ] Configuration: max_concurrent=50
+[19:07:34] [INFO   ] Registered users: 2
+[19:07:45] [INFO   ] Session started: dariusg9958 (ID: 803876587376214046) — active: 1
+[19:07:46] [DEBUG  ] [GET] users/@me -> 200
+[19:07:48] [DEBUG  ] [GET] quests/@me -> 200
+[19:07:48] [INFO   ] Found 8 automatable, 1 pending claim
+[19:07:51] [DEBUG  ] [POST] quests/1547647018090893312/complete -> 404
+[19:07:51] [DEBUG  ] [POST] quests/1547647018090893312/claim -> 404
+[19:07:51] [INFO   ] Not claimed: ROR2 Hallowed Concepts
+[19:07:52] [INFO   ] Processing quest 1/8: March of Giants Playtest
+[19:07:52] [INFO   ] PLAY: March of Giants Playtest
+[19:08:25] [INFO   ] Admin board started in #admin-dashboard
+[19:11:00] [INFO   ] Session ended: user 803876587376214046 — active: 0
+[19:11:12] [INFO   ] Bot ready: End#7536
+[19:11:12] [INFO   ] Emoji loaded: loading -> <a:loading:1558490464464806020>
+[19:11:12] [INFO   ] Emoji loaded: verified -> <a:verified:1558490473583087706>
+[19:11:12] [INFO   ] Emoji loaded: questicon -> <:questicon3d17:1558495136940425317>
+[19:11:12] [INFO   ] Emoji loaded: statusonline30 -> <:statusonline30:1558495192225554583>
+[19:11:12] [INFO   ] Emoji loaded: statusmajor -> <:statusmajor:1558495227893776434>
+[19:11:12] [INFO   ] Emoji loaded: moon2 -> <a:moon2:1558793807405776937>
+[19:11:12] [INFO   ] Emoji loaded: animated -> <a:Animated:1558793841002160258>
+[19:11:12] [INFO   ] Total emojis loaded: 7/7
+[19:11:12] [INFO   ] Bot activity: Doing nothing but shits "Quest Automated"
+[19:11:12] [INFO   ] Configuration: max_concurrent=50
+[19:11:12] [INFO   ] Registered users: 2
+[19:11:17] [INFO   ] Admin board started in #admin-dashboard
+[19:11:39] [INFO   ] Session started: dariusg9958 (ID: 803876587376214046) — active: 1
+[19:11:40] [DEBUG  ] [GET] users/@me -> 200
+[19:11:43] [DEBUG  ] [GET] quests/@me -> 200
+[19:11:43] [INFO   ] Found 8 automatable, 0 pending claim
+[19:11:45] [INFO   ] Processing quest 1/8: March of Giants Playtest
+[19:11:45] [INFO   ] PLAY: March of Giants Playtest
+[19:12:58] [INFO   ] Session ended: user 803876587376214046 — active: 0
+[19:13:50] [INFO   ] Bot ready: End#7536
+[19:13:50] [INFO   ] Emoji loaded: loading -> <a:loading:1558490464464806020>
+[19:13:50] [INFO   ] Emoji loaded: verified -> <a:verified:1558490473583087706>
+[19:13:50] [INFO   ] Emoji loaded: questicon -> <:questicon3d17:1558495136940425317>
+[19:13:50] [INFO   ] Emoji loaded: statusonline30 -> <:statusonline30:1558495192225554583>
+[19:13:50] [INFO   ] Emoji loaded: statusmajor -> <:statusmajor:1558495227893776434>
+[19:13:50] [INFO   ] Emoji loaded: moon2 -> <a:moon2:1558793807405776937>
+[19:13:50] [INFO   ] Emoji loaded: animated -> <a:Animated:1558793841002160258>
+[19:13:50] [INFO   ] Total emojis loaded: 7/7
+[19:13:50] [INFO   ] Bot activity: Doing nothing but shits "Quest Automated"
+[19:13:50] [INFO   ] Configuration: max_concurrent=50
+[19:13:50] [INFO   ] Registered users: 2
+[19:14:01] [INFO   ] Admin board started in #admin-dashboard
+[19:14:15] [INFO   ] Session started: dariusg9958 (ID: 803876587376214046) — active: 1
+[19:14:16] [DEBUG  ] [GET] users/@me -> 200
+[19:14:18] [DEBUG  ] [GET] quests/@me -> 200
+[19:14:18] [INFO   ] Found 8 automatable, 0 pending claim
+[19:14:20] [INFO   ] Processing quest 1/8: March of Giants Playtest
+[19:14:20] [INFO   ] PLAY: March of Giants Playtest
+[19:16:02] [DEBUG  ] [POST] quests/1552900191751905280/heartbeat -> 400
+[19:19:15] [DEBUG  ] [POST] quests/1552900191751905280/complete -> 404
+[19:19:15] [DEBUG  ] [POST] quests/1552900191751905280/claim -> 404
+[19:19:15] [INFO   ] Not claimed: March of Giants Playtest
+[19:19:18] [INFO   ] Processing quest 2/8: Deadzone Rogue 2
+[19:19:18] [INFO   ] PLAY: Deadzone Rogue 2
+[19:24:15] [ERROR  ] Admin board update error: [WinError 64] The specified network name is no longer available
+[19:36:25] [DEBUG  ] [POST] quests/1556778857481113610/complete -> 404
+[19:36:25] [DEBUG  ] [POST] quests/1556778857481113610/claim -> 404
+[19:36:25] [INFO   ] Not claimed: Deadzone Rogue 2
+[19:36:29] [INFO   ] Processing quest 3/8: Play VALORANT
+[19:36:29] [INFO   ] PLAY: Play VALORANT
+[19:54:47] [DEBUG  ] [POST] quests/1549142163487592600/complete -> 404
+[19:54:48] [DEBUG  ] [POST] quests/1549142163487592600/claim -> 404
+[19:54:48] [INFO   ] Not claimed: Play VALORANT
+[19:54:55] [INFO   ] Processing quest 4/8: AION 2 LAUNCH PLAY
+[19:54:55] [INFO   ] PLAY: AION 2 LAUNCH PLAY
+[19:59:37] [ERROR  ] Status update error: Server disconnected
+[19:59:37] [INFO   ] Session ended: user 803876587376214046 — active: 0
+[22:43:38] [INFO   ] Bot ready: End#7536
+[22:43:38] [INFO   ] Emoji loaded: loading -> <a:loading:1558490464464806020>
+[22:43:38] [INFO   ] Emoji loaded: verified -> <a:verified:1558490473583087706>
+[22:43:38] [INFO   ] Emoji loaded: questicon -> <:questicon3d17:1558495136940425317>
+[22:43:38] [INFO   ] Emoji loaded: statusonline30 -> <:statusonline30:1558495192225554583>
+[22:43:38] [INFO   ] Emoji loaded: statusmajor -> <:statusmajor:1558495227893776434>
+[22:43:38] [INFO   ] Emoji loaded: moon2 -> <a:moon2:1558793807405776937>
+[22:43:38] [INFO   ] Emoji loaded: animated -> <a:Animated:1558793841002160258>
+[22:43:38] [INFO   ] Total emojis loaded: 7/7
+[22:43:39] [INFO   ] Bot activity: Doing nothing but shits "Quest Automated"
+[22:43:39] [INFO   ] Configuration: max_concurrent=50
+[22:43:39] [INFO   ] Registered users: 2
+[22:43:39] [INFO   ] Ready as End#7536 (ID: 1463563643357630546)
+[22:43:54] [INFO   ] Session started: end_proxy (ID: 1206356786400206860) — active: 1
+[22:43:55] [DEBUG  ] [GET] users/@me -> 200
+[22:43:58] [DEBUG  ] [GET] quests/@me -> 200
+[22:43:58] [INFO   ] Found 0 automatable, 0 pending claim
+[22:43:59] [INFO   ] Session ended: user 1206356786400206860 — active: 0
+[22:44:25] [INFO   ] Session started: end_proxy (ID: 1206356786400206860) — active: 1
+[22:44:26] [DEBUG  ] [GET] users/@me -> 200
+[22:44:28] [DEBUG  ] [GET] quests/@me -> 200
+[22:44:28] [INFO   ] Found 3 automatable, 0 pending claim
+[22:44:30] [INFO   ] PLAY: Clean Crew
+[22:48:48] [INFO   ] Cleared 20 DM messages for end_proxy
+[22:54:33] [INFO   ] Session ended: user 1206356786400206860 — active: 0
+[22:55:21] [INFO   ] Bot ready: End#7536
+[22:55:21] [INFO   ] Emoji loaded: loading -> <a:loading:1558490464464806020>
+[22:55:21] [INFO   ] Emoji loaded: verified -> <a:verified:1558490473583087706>
+[22:55:21] [INFO   ] Emoji loaded: questicon -> <:questicon3d17:1558495136940425317>
+[22:55:21] [INFO   ] Emoji loaded: statusonline30 -> <:statusonline30:1558495192225554583>
+[22:55:21] [INFO   ] Emoji loaded: statusmajor -> <:statusmajor:1558495227893776434>
+[22:55:21] [INFO   ] Emoji loaded: moon2 -> <a:moon2:1558793807405776937>
+[22:55:21] [INFO   ] Emoji loaded: animated -> <a:Animated:1558793841002160258>
+[22:55:21] [INFO   ] Total emojis loaded: 7/7
+[22:55:21] [INFO   ] Bot activity: Doing nothing but shits "Quest Automated"
+[22:55:21] [INFO   ] Configuration: max_concurrent=50
+[22:55:21] [INFO   ] Registered users: 2
+[22:55:21] [INFO   ] Ready as End#7536 (ID: 1463563643357630546)
+[22:55:27] [INFO   ] Session started: end_proxy (ID: 1206356786400206860) — active: 1
+[22:55:28] [DEBUG  ] [GET] users/@me -> 200
+[22:55:31] [DEBUG  ] [GET] quests/@me -> 200
+[22:55:31] [INFO   ] Found 3 automatable, 0 pending claim
+[22:55:33] [INFO   ] PLAY: Clean Crew
+[23:00:55] [DEBUG  ] [POST] quests/1558176501663272961/heartbeat -> 401
+[23:00:55] [ERROR  ] Quest error: Invalid token (401)
+[23:00:58] [INFO   ] PLAY: Call of Duty: Modern Warfare 4
+[23:01:02] [DEBUG  ] [POST] quests/1552893313500184617/heartbeat -> 401
+[23:01:02] [ERROR  ] Quest error: Invalid token (401)
+[23:01:04] [INFO   ] PLAY: Version Update: Si
+[23:01:05] [DEBUG  ] [POST] quests/1555080843502813245/heartbeat -> 401
+[23:01:05] [ERROR  ] Quest error: Invalid token (401)
+[23:01:06] [INFO   ] Session ended: user 1206356786400206860 — active: 0
+[23:01:16] [INFO   ] Session started: end_proxy (ID: 1206356786400206860) — active: 1
+[23:01:17] [DEBUG  ] [GET] users/@me -> 401
+[23:01:20] [INFO   ] Session ended: user 1206356786400206860 — active: 0
+[23:02:21] [INFO   ] Session started: end_proxy (ID: 1206356786400206860) — active: 1
+[23:02:23] [DEBUG  ] [GET] users/@me -> 401
+[23:02:23] [INFO   ] Session ended: user 1206356786400206860 — active: 0
+[23:02:49] [INFO   ] Session started: dariusg9958 (ID: 803876587376214046) — active: 1
+[23:02:50] [DEBUG  ] [GET] users/@me -> 200
+[23:02:53] [DEBUG  ] [GET] quests/@me -> 200
+[23:02:53] [INFO   ] Found 0 automatable, 7 pending claim
+[23:02:55] [DEBUG  ] [POST] quests/1552900191751905280/complete -> 404
+[23:02:55] [DEBUG  ] [POST] quests/1552900191751905280/claim -> 404
+[23:02:55] [INFO   ] Not claimed: March of Giants Playtest
+[23:02:56] [DEBUG  ] [POST] quests/1549142163487592600/complete -> 404
+[23:02:57] [DEBUG  ] [POST] quests/1549142163487592600/claim -> 404
+[23:02:57] [INFO   ] Not claimed: Play VALORANT
+[23:02:58] [DEBUG  ] [POST] quests/1554676841879441438/complete -> 404
+[23:02:58] [DEBUG  ] [POST] quests/1554676841879441438/claim -> 404
+[23:02:58] [INFO   ] Not claimed: AION 2 LAUNCH PLAY
+[23:02:59] [DEBUG  ] [POST] quests/1554267368748883999/complete -> 404
+[23:02:59] [DEBUG  ] [POST] quests/1554267368748883999/claim -> 404
+[23:02:59] [INFO   ] Not claimed: Dark Arisen Arrives
+[23:03:00] [DEBUG  ] [POST] quests/1549171029241233449/complete -> 404
+[23:03:00] [DEBUG  ] [POST] quests/1549171029241233449/claim -> 404
+[23:03:00] [INFO   ] Not claimed: Apex VS Street Fighter 6 Event
+[23:03:01] [DEBUG  ] [POST] quests/1554683719422316636/complete -> 404
+[23:03:02] [DEBUG  ] [POST] quests/1554683719422316636/claim -> 404
+[23:03:02] [INFO   ] Not claimed: Version 2.3: Friends from Afar
+[23:03:03] [DEBUG  ] [POST] quests/1555654330043076719/complete -> 404
+[23:03:03] [DEBUG  ] [POST] quests/1555654330043076719/claim -> 404
+[23:03:03] [INFO   ] Not claimed: Doors
+[23:03:05] [INFO   ] Session ended: user 803876587376214046 — active: 0
+[23:03:26] [INFO   ] Session started: dariusg9958 (ID: 803876587376214046) — active: 1
+[23:03:27] [DEBUG  ] [GET] users/@me -> 200
+[23:03:29] [DEBUG  ] [GET] quests/@me -> 200
+[23:03:29] [INFO   ] Found 3 automatable, 7 pending claim
+[23:03:31] [DEBUG  ] [POST] quests/1552900191751905280/complete -> 404
+[23:03:32] [DEBUG  ] [POST] quests/1552900191751905280/claim -> 404
+[23:03:32] [INFO   ] Not claimed: March of Giants Playtest
+[23:03:32] [DEBUG  ] [POST] quests/1549142163487592600/complete -> 404
+[23:03:33] [DEBUG  ] [POST] quests/1549142163487592600/claim -> 404
+[23:03:33] [INFO   ] Not claimed: Play VALORANT
+[23:03:34] [DEBUG  ] [POST] quests/1554676841879441438/complete -> 404
+[23:03:34] [DEBUG  ] [POST] quests/1554676841879441438/claim -> 404
+[23:03:34] [INFO   ] Not claimed: AION 2 LAUNCH PLAY
+[23:03:35] [DEBUG  ] [POST] quests/1554267368748883999/complete -> 404
+[23:03:35] [DEBUG  ] [POST] quests/1554267368748883999/claim -> 404
+[23:03:35] [INFO   ] Not claimed: Dark Arisen Arrives
+[23:03:36] [DEBUG  ] [POST] quests/1549171029241233449/complete -> 404
+[23:03:36] [DEBUG  ] [POST] quests/1549171029241233449/claim -> 404
+[23:03:36] [INFO   ] Not claimed: Apex VS Street Fighter 6 Event
+[23:03:37] [DEBUG  ] [POST] quests/1554683719422316636/complete -> 404
+[23:03:38] [DEBUG  ] [POST] quests/1554683719422316636/claim -> 404
+[23:03:38] [INFO   ] Not claimed: Version 2.3: Friends from Afar
+[23:03:38] [DEBUG  ] [POST] quests/1555654330043076719/complete -> 404
+[23:03:39] [DEBUG  ] [POST] quests/1555654330043076719/claim -> 404
+[23:03:39] [INFO   ] Not claimed: Doors
+[23:03:40] [INFO   ] PLAY: Clean Crew
+[23:05:52] [WARN   ] Bot disconnecting — terminating all sessions...
+[23:05:52] [WARN   ] Terminated 1 session(s)
+[23:05:57] [INFO   ] Session ended: user 803876587376214046 — active: 0
+[23:06:51] [INFO   ] Token registered: 1206356786400206860 (end_proxy)
+[23:06:58] [INFO   ] Session started: end_proxy (ID: 1206356786400206860) — active: 1
+[23:06:59] [DEBUG  ] [GET] users/@me -> 200
+[23:07:01] [DEBUG  ] [GET] quests/@me -> 200
+[23:07:01] [INFO   ] Found 2 automatable, 1 pending claim
+[23:07:03] [DEBUG  ] [POST] quests/1558176501663272961/complete -> 404
+[23:07:04] [DEBUG  ] [POST] quests/1558176501663272961/claim -> 404
+[23:07:04] [INFO   ] Not claimed: Clean Crew
+[23:07:04] [INFO   ] PLAY: Call of Duty: Modern Warfare 4
+[23:08:26] [INFO   ] Session ended: user 1206356786400206860 — active: 0
+[23:10:52] [INFO   ] Bot ready: End#7536
+[23:10:52] [INFO   ] Emoji loaded: loading -> <a:loading:1558490464464806020>
+[23:10:52] [INFO   ] Emoji loaded: verified -> <a:verified:1558490473583087706>
+[23:10:52] [INFO   ] Emoji loaded: questicon -> <:questicon3d17:1558495136940425317>
+[23:10:52] [INFO   ] Emoji loaded: statusonline30 -> <:statusonline30:1558495192225554583>
+[23:10:52] [INFO   ] Emoji loaded: statusmajor -> <:statusmajor:1558495227893776434>
+[23:10:52] [INFO   ] Emoji loaded: moon2 -> <a:moon2:1558793807405776937>
+[23:10:52] [INFO   ] Emoji loaded: animated -> <a:Animated:1558793841002160258>
+[23:10:52] [INFO   ] Total emojis loaded: 7/7
+[23:10:52] [INFO   ] Bot activity: Doing nothing but shits "Quest Automated"
+[23:10:52] [INFO   ] Configuration: max_concurrent=50
+[23:10:52] [INFO   ] Registered users: 2
+[23:10:52] [INFO   ] Ready as End#7536 (ID: 1463563643357630546)
+[23:10:58] [INFO   ] Session started: end_proxy (ID: 1206356786400206860) — active: 1
+[23:10:59] [DEBUG  ] [GET] users/@me -> 200
+[23:11:01] [DEBUG  ] [GET] quests/@me -> 200
+[23:11:01] [INFO   ] Found 2 automatable, 1 pending claim
+[23:11:04] [DEBUG  ] [POST] quests/1558176501663272961/complete -> 404
+[23:11:04] [DEBUG  ] [POST] quests/1558176501663272961/claim -> 404
+[23:11:04] [INFO   ] Not claimed: Clean Crew
+[23:11:05] [INFO   ] PLAY: Call of Duty: Modern Warfare 4
+[23:11:55] [INFO   ] Session started: end_proxy (ID: 1206356786400206860) — active: 1
+[23:11:56] [DEBUG  ] [GET] users/@me -> 200
+[23:11:58] [DEBUG  ] [GET] quests/@me -> 200
+[23:11:58] [INFO   ] Found 2 automatable, 1 pending claim
+[23:12:00] [DEBUG  ] [POST] quests/1558176501663272961/complete -> 404
+[23:12:00] [DEBUG  ] [POST] quests/1558176501663272961/claim -> 404
+[23:12:00] [INFO   ] Not claimed: Clean Crew
+[23:12:01] [INFO   ] PLAY: Call of Duty: Modern Warfare 4
+[23:12:20] [INFO   ] Session ended: user 1206356786400206860 — active: 0
+[23:12:29] [INFO   ] Session started: end_proxy (ID: 1206356786400206860) — active: 1
+[23:12:30] [DEBUG  ] [GET] users/@me -> 200
+[23:12:32] [DEBUG  ] [GET] quests/@me -> 200
+[23:12:32] [INFO   ] Found 2 automatable, 1 pending claim
+[23:12:35] [DEBUG  ] [POST] quests/1558176501663272961/complete -> 404
+[23:12:35] [DEBUG  ] [POST] quests/1558176501663272961/claim -> 404
+[23:12:35] [INFO   ] Not claimed: Clean Crew
+[23:12:36] [INFO   ] PLAY: Call of Duty: Modern Warfare 4
+[23:17:31] [INFO   ] Session ended: user 1206356786400206860 — active: 0
+[23:17:31] [INFO   ] Session ended: user 1206356786400206860 — active: 0
+[23:17:42] [INFO   ] Bot ready: End#7536
+[23:17:42] [INFO   ] Emojis loaded: 7/7
+[23:17:43] [INFO   ] Registered users: 2
+[23:17:43] [INFO   ] Ready as End#7536 (ID: 1463563643357630546)
+[23:17:46] [INFO   ] Session started: end_proxy (ID: 1206356786400206860) — active: 1
+[23:17:47] [DEBUG  ] [GET] users/@me -> 200
+[23:17:55] [DEBUG  ] [GET] quests/@me -> 200
+[23:17:55] [INFO   ] Found 22 automatable, 1 pending claim
+[23:17:58] [DEBUG  ] [POST] quests/1558176501663272961/claim -> 404
+[23:17:58] [DEBUG  ] [POST] quests/1558176501663272961/complete -> 404
+[23:17:58] [INFO   ] Not claimed: Clean Crew
+[23:17:59] [DEBUG  ] [POST] quests/1550081499628441600/enroll -> 404
+[23:18:00] [INFO   ] PLAY: War Thunder
+[23:18:01] [DEBUG  ] [POST] quests/1550081499628441600/heartbeat -> 404
+[23:18:32] [DEBUG  ] [POST] quests/1550081499628441600/heartbeat -> 404
+[23:19:01] [DEBUG  ] [POST] quests/1550081499628441600/heartbeat -> 404
+[23:19:33] [DEBUG  ] [POST] quests/1550081499628441600/heartbeat -> 404
+[23:19:42] [INFO   ] Session started: end_proxy (ID: 1206356786400206860) — active: 1
+[23:19:44] [DEBUG  ] [GET] users/@me -> 200
+[23:19:45] [DEBUG  ] [GET] quests/@me -> 200
+[23:19:45] [INFO   ] Found 22 automatable, 0 pending claim
+[23:19:48] [DEBUG  ] [POST] quests/1550081499628441600/enroll -> 404
+[23:19:50] [INFO   ] PLAY: War Thunder
+[23:19:50] [DEBUG  ] [POST] quests/1550081499628441600/heartbeat -> 404
+[23:20:12] [INFO   ] Session ended: user 1206356786400206860 — active: 0
+[23:20:23] [DEBUG  ] [POST] quests/1550081499628441600/heartbeat -> 404
+[23:20:56] [DEBUG  ] [POST] quests/1550081499628441600/heartbeat -> 404
+[23:21:27] [DEBUG  ] [POST] quests/1550081499628441600/heartbeat -> 404
+[23:21:58] [DEBUG  ] [POST] quests/1550081499628441600/heartbeat -> 404
+[23:22:13] [INFO   ] Session ended: user 1206356786400206860 — active: 0
+[23:29:12] [INFO   ] Bot ready: End#7536
+[23:29:12] [INFO   ] Emoji loaded: loading -> <a:loading:1558490464464806020>
+[23:29:12] [INFO   ] Emoji loaded: verified -> <a:verified:1558490473583087706>
+[23:29:12] [INFO   ] Emoji loaded: questicon -> <:questicon3d17:1558495136940425317>
+[23:29:12] [INFO   ] Emoji loaded: statusonline30 -> <:statusonline30:1558495192225554583>
+[23:29:12] [INFO   ] Emoji loaded: statusmajor -> <:statusmajor:1558495227893776434>
+[23:29:12] [INFO   ] Emoji loaded: moon2 -> <a:moon2:1558793807405776937>
+[23:29:12] [INFO   ] Emoji loaded: animated -> <a:Animated:1558793841002160258>
+[23:29:12] [INFO   ] Total emojis loaded: 7/7
+[23:29:12] [INFO   ] Bot activity: Doing nothing but shits "Quest Automated"
+[23:29:12] [INFO   ] Configuration: max_concurrent=50
+[23:29:12] [INFO   ] Registered users: 2
+[23:29:12] [INFO   ] Session started: end_proxy (ID: 1206356786400206860) — active: 1
+[23:29:13] [DEBUG  ] [GET] users/@me -> 200
+[23:29:16] [DEBUG  ] [GET] quests/@me -> 200
+[23:29:16] [INFO   ] Found 2 automatable, 0 pending claim
+[23:29:18] [INFO   ] Processing quest 1/2: Call of Duty: Modern Warfare 4
+[23:29:18] [INFO   ] PLAY: Call of Duty: Modern Warfare 4
