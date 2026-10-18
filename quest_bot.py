@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-COMBINED BOT: Auto-Enroll Quest Completer & Persistent Auto-Poster (ALL EMBEDS & FIXED)
+COMBINED BOT: Auto-Enroll Quest Completer & Persistent Auto-Poster
 """
 
 import asyncio
@@ -150,7 +150,6 @@ async def sync_tokens_from_channel():
     async for msg in _storage_channel.history(limit=500):
         if msg.author.id != bot.user.id: continue
         try:
-            # Sinusupport nito kahit plain text (msg.content) o embed (msg.embeds)
             raw_text = msg.content
             if msg.embeds and msg.embeds[0].description:
                 raw_text = msg.embeds[0].description
@@ -160,7 +159,6 @@ async def sync_tokens_from_channel():
                 data = json.loads(match.group(1))
                 uid = str(data.get("user_id"))
                 
-                # Fallback: kunin ang user_id mula sa image_paths kung wala sa JSON
                 if uid == "None" or not uid:
                     paths = data.get("poster_config", {}).get("image_paths", [])
                     if paths:
@@ -182,9 +180,8 @@ async def sync_tokens_from_channel():
 async def save_to_channel(user_id: str):
     if not _storage_channel: return
     data = _tokens_cache.get(str(user_id), {})
-    data["user_id"] = str(user_id) # Siguradong lalabas na ang user_id dito
+    data["user_id"] = str(user_id)
     
-    # Naka-Embed na ang save
     embed = discord.Embed(title="🔐 Secure Token & Config Storage", color=0x2b2d31)
     embed.description = f"```json\n{json.dumps(data, indent=2)}\n```"
     embed.set_footer(text=f"User ID: {user_id}")
@@ -426,7 +423,7 @@ class QuestSession:
         return False
 
 # =====================================================================
-# AUTO-POSTER ENGINE (FIXED RATE LIMIT / NO STUCK)
+# AUTO-POSTER ENGINE (FIXED RATE LIMIT & LIVE COUNTDOWN)
 # =====================================================================
 class PosterTask:
     def __init__(self, owner, channel_data, token, text, image_paths, image_filenames):
@@ -494,13 +491,14 @@ class PosterTask:
                     self.states[cid]["status"] = f"{emoji('verified')} Posted!"
                     wait_time = slowmode + 2
                     
-                    # Inayos natin dito: Hindi na nag-uupdate kada segundo para hindi ma-rate limit
+                    # I-update ang embed kada 5 segundo para live tignan pero safe sa rate limit
                     self.states[cid]["status"] = f"{emoji('lock')} Cooldown"
-                    self.states[cid]["wait"] = wait_time
-                    await self.update_embed()
-                    
-                    log(f"[POSTER] {cid} waiting {wait_time}s.", "INFO")
-                    await asyncio.sleep(wait_time) # Diretso sleep
+                    while wait_time > 0 and self.running:
+                        self.states[cid]["wait"] = wait_time
+                        await self.update_embed()
+                        sleep_chunk = min(5, wait_time)
+                        await asyncio.sleep(sleep_chunk)
+                        wait_time -= sleep_chunk
                     
                     self.states[cid]["wait"] = 0
                 elif status_code == 429:
