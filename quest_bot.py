@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-COMBINED BOT: Auto-Enroll Quest Completer & Persistent Auto-Poster
+COMBINED BOT: Auto-Enroll Quest Completer & Persistent Auto-Poster (Native Timestamps)
 """
 
 import asyncio
@@ -423,7 +423,7 @@ class QuestSession:
         return False
 
 # =====================================================================
-# AUTO-POSTER ENGINE (FIXED RATE LIMIT & LIVE COUNTDOWN)
+# AUTO-POSTER ENGINE (WITH DEBUG LOGS & LONGER TIMEOUT)
 # =====================================================================
 class PosterTask:
     def __init__(self, owner, channel_data, token, text, image_paths, image_filenames):
@@ -445,7 +445,7 @@ class PosterTask:
         embed = discord.Embed(title=f"{emoji('animated')} Auto-Poster Status", color=0x2b2d31)
         for cid, state in self.states.items():
             status_text = f"{state['status']} (Post #{state['posts']})"
-            if state['wait'] > 0: status_text += f"\n{emoji('lock')} Waiting: `{state['wait']}s`"
+            if state['wait'] > 0: status_text += f"\n{emoji('lock')} Ready <t:{state['wait']}:R>"
             embed.add_field(name=f"Channel: <#{cid}>", value=status_text, inline=False)
         embed.set_footer(text=f"Live Updates • {datetime.now().strftime('%H:%M:%S')}")
         try:
@@ -458,13 +458,15 @@ class PosterTask:
             while self.running:
                 self.states[cid]["status"] = f"{emoji('loading')} Posting..."
                 self.states[cid]["wait"] = 0
-                await self.update_embed()
-                log(f"[POSTER] Attempting post to {cid}...", "INFO")
+                asyncio.create_task(self.update_embed()) # Fire and forget para hindi mag-hang
                 
+                log(f"[POSTER] Preparing upload to {cid}...", "INFO")
                 form = aiohttp.FormData()
                 form.add_field("payload_json", json.dumps({"content": self.text or ""}), content_type="application/json")
+                
                 opened_files = []
                 if self.image_paths:
+                    log(f"[POSTER] Attaching {len(self.image_paths)} images...", "INFO")
                     for idx, (path, fname) in enumerate(zip(self.image_paths, self.image_filenames)):
                         try:
                             f = open(path, "rb"); opened_files.append(f)
@@ -475,41 +477,39 @@ class PosterTask:
                 success = False; status_code = 500; retry_after = 0
                 
                 try:
-                    async with session.post(f"{API}/channels/{cid}/messages", headers=headers, data=form, timeout=aiohttp.ClientTimeout(total=45)) as r:
+                    log(f"[POSTER] Sending to Discord API...", "INFO")
+                    # Tinagyugan natin ng oras para umabot sa 120s
+                    async with session.post(f"{API}/channels/{cid}/messages", headers=headers, data=form, timeout=aiohttp.ClientTimeout(total=120)) as r:
                         success = (r.status in (200, 201)); status_code = r.status
-                        if not success and r.status == 429:
+                        if not success:
+                            log(f"[POSTER] API returned {r.status}: {await r.text()}", "ERROR")
+                        if r.status == 429:
                             try: retry_after = float(json.loads(await r.text()).get("retry_after", 5))
                             except Exception: retry_after = 5
-                except Exception as e: log(f"[ERROR] Upload failed: {e}", "ERROR")
+                except Exception as e: 
+                    log(f"[ERROR] Upload failed: {e}", "ERROR")
                 finally:
                     for f in opened_files: f.close()
                 gc.collect()
 
+                log(f"[POSTER] Post result: Success={success}, Code={status_code}", "INFO")
+
                 if success:
-                    log(f"[POSTER] Success posting to {cid}!", "INFO")
                     self.states[cid]["posts"] += 1
-                    self.states[cid]["status"] = f"{emoji('verified')} Posted!"
                     wait_time = slowmode + 2
-                    
-                    # I-update ang embed kada 5 segundo para live tignan pero safe sa rate limit
+                    end_time = int(time.time()) + wait_time
                     self.states[cid]["status"] = f"{emoji('lock')} Cooldown"
-                    while wait_time > 0 and self.running:
-                        self.states[cid]["wait"] = wait_time
-                        await self.update_embed()
-                        sleep_chunk = min(5, wait_time)
-                        await asyncio.sleep(sleep_chunk)
-                        wait_time -= sleep_chunk
-                    
+                    self.states[cid]["wait"] = end_time
+                    await self.update_embed()
+                    await asyncio.sleep(wait_time)
                     self.states[cid]["wait"] = 0
                 elif status_code == 429:
-                    log(f"[POSTER] Rate limited on {cid}. Waiting {retry_after}s.", "WARN")
                     self.states[cid]["status"] = f"{emoji('warning')} Rate Limited"
-                    self.states[cid]["wait"] = int(retry_after)
+                    self.states[cid]["wait"] = int(time.time()) + int(retry_after)
                     await self.update_embed()
                     await asyncio.sleep(retry_after)
                     self.states[cid]["wait"] = 0
                 else:
-                    log(f"[POSTER] Failed on {cid} (HTTP {status_code}).", "ERROR")
                     self.states[cid]["status"] = f"{emoji('redcircle')} Failed (HTTP {status_code})"
                     await self.update_embed()
                     break
