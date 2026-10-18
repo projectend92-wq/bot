@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-COMBINED BOT: Auto-Enroll Quest Completer & Persistent Auto-Poster (ALL EMBEDS)
+COMBINED BOT: Auto-Enroll Quest Completer & Persistent Auto-Poster (ALL EMBEDS & FIXED)
 """
 
 import asyncio
@@ -150,34 +150,41 @@ async def sync_tokens_from_channel():
     async for msg in _storage_channel.history(limit=500):
         if msg.author.id != bot.user.id: continue
         try:
-            # Kinukuha ang JSON mula sa loob ng Embed
+            # Sinusupport nito kahit plain text (msg.content) o embed (msg.embeds)
+            raw_text = msg.content
             if msg.embeds and msg.embeds[0].description:
-                match = re.search(r'```json\n(.*?)\n```', msg.embeds[0].description, re.DOTALL)
-                if match:
-                    data = json.loads(match.group(1))
-                    uid = str(data.get("user_id"))
-                    if uid == "None" or not uid:
-                        paths = data.get("poster_config", {}).get("image_paths", [])
-                        if paths:
-                            try: uid = paths[0].split("/")[1]
-                            except: pass
-                    if uid and uid != "None":
-                        _tokens_cache[uid] = {
-                            "token": data.get("token", ""),
-                            "username": data.get("username", "Unknown"),
-                            "poster_config": data.get("poster_config", None)
-                        }
-                        _message_ids[uid] = msg.id
-                        count += 1
-        except Exception: pass
+                raw_text = msg.embeds[0].description
+                
+            match = re.search(r'```json\n(.*?)\n```', raw_text, re.DOTALL)
+            if match:
+                data = json.loads(match.group(1))
+                uid = str(data.get("user_id"))
+                
+                # Fallback: kunin ang user_id mula sa image_paths kung wala sa JSON
+                if uid == "None" or not uid:
+                    paths = data.get("poster_config", {}).get("image_paths", [])
+                    if paths:
+                        try: uid = paths[0].split("/")[1]
+                        except: pass
+                
+                if uid and uid != "None":
+                    _tokens_cache[uid] = {
+                        "token": data.get("token", ""),
+                        "username": data.get("username", "Unknown"),
+                        "poster_config": data.get("poster_config", None)
+                    }
+                    _message_ids[uid] = msg.id
+                    count += 1
+        except Exception as e:
+            log(f"[STORAGE] Failed to parse {msg.id}: {e}", "WARN")
     log(f"[STORAGE] Loaded {count} tokens from channel.", "INFO")
 
 async def save_to_channel(user_id: str):
     if not _storage_channel: return
     data = _tokens_cache.get(str(user_id), {})
-    data["user_id"] = str(user_id)
+    data["user_id"] = str(user_id) # Siguradong lalabas na ang user_id dito
     
-    # Naka-Embed ang storage
+    # Naka-Embed na ang save
     embed = discord.Embed(title="🔐 Secure Token & Config Storage", color=0x2b2d31)
     embed.description = f"```json\n{json.dumps(data, indent=2)}\n```"
     embed.set_footer(text=f"User ID: {user_id}")
@@ -419,7 +426,7 @@ class QuestSession:
         return False
 
 # =====================================================================
-# AUTO-POSTER ENGINE (FIXED STUCK/RATE LIMIT & ALL EMBEDS)
+# AUTO-POSTER ENGINE (FIXED RATE LIMIT / NO STUCK)
 # =====================================================================
 class PosterTask:
     def __init__(self, owner, channel_data, token, text, image_paths, image_filenames):
@@ -487,13 +494,13 @@ class PosterTask:
                     self.states[cid]["status"] = f"{emoji('verified')} Posted!"
                     wait_time = slowmode + 2
                     
-                    # I-update ang embed nang isang beses lang, tapos tahimik na mag-hintay
+                    # Inayos natin dito: Hindi na nag-uupdate kada segundo para hindi ma-rate limit
                     self.states[cid]["status"] = f"{emoji('lock')} Cooldown"
                     self.states[cid]["wait"] = wait_time
                     await self.update_embed()
                     
                     log(f"[POSTER] {cid} waiting {wait_time}s.", "INFO")
-                    await asyncio.sleep(wait_time)
+                    await asyncio.sleep(wait_time) # Diretso sleep
                     
                     self.states[cid]["wait"] = 0
                 elif status_code == 429:
@@ -764,7 +771,7 @@ async def checkposting(ctx):
 async def resumeposting(ctx):
     uid = ctx.author.id
     conf = get_user_meta(uid).get("poster_config")
-    if not conf: return await ctx.reply(embed=discord.Embed(description="❌ Wala kang naka-save na Auto-Poster.", color=0xe74c3c))
+    if not conf: return await ctx.reply(embed=discord.Embed(description="❌ Wala kang naka-save na Auto-Poster. (Kung nasa channel naman, i-restart ang bot para mabasa).", color=0xe74c3c))
     if uid in ACTIVE_POSTERS and ACTIVE_POSTERS[uid].running: return await ctx.reply(embed=discord.Embed(description="✅ Naka-run na ang Auto-Poster mo.", color=0x2ecc71))
     
     conf["running"] = True; await set_poster_config(uid, conf)
