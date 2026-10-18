@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-COMBINED BOT: Cloud-Optimized Quest Auto-Completer & Auto-Poster (Pre-filled Updates)
+COMBINED BOT: Cloud-Optimized Quest Auto-Completer & Auto-Poster (With Resume Command)
 """
 
 import asyncio
@@ -26,7 +26,7 @@ except ImportError as e:
     print(f"[FATAL] Missing dependency: {e}")
     sys.exit(1)
 
-# ===== FLASK KEEP-ALIVE (Para hindi makatulog sa Render) =====
+# ===== FLASK KEEP-ALIVE =====
 app = Flask('')
 
 @app.route('/')
@@ -402,7 +402,7 @@ class QuestSession:
         return False
 
 # =====================================================================
-# AUTO-POSTER ENGINE (PRE-FILLED UPDATES & IMAGE PRESERVATION)
+# AUTO-POSTER ENGINE
 # =====================================================================
 class PosterTask:
     def __init__(self, owner, channel_data, token, text, image_paths, image_filenames):
@@ -505,11 +505,10 @@ class PosterSetupModal(discord.ui.Modal):
 
     def __init__(self, title, existing_data=None, image_urls=None, image_filenames=None):
         super().__init__(title=title)
-        self.existing_data = existing_data # I-save ang existing data para mabasa sa on_submit
+        self.existing_data = existing_data 
         self.image_urls = image_urls or []
         self.image_filenames = image_filenames or []
         
-        # PRE-FILL THE FIELDS
         if existing_data:
             self.token_input.default = existing_data.get("token", "")
             self.channel_input_1.default = existing_data.get("channels", [""])[0]
@@ -540,7 +539,6 @@ class PosterSetupModal(discord.ui.Modal):
         final_filenames = []
 
         if self.image_urls:
-            # May BAGONG images na in-attach
             async with aiohttp.ClientSession() as session:
                 for idx, (url, fname) in enumerate(zip(self.image_urls, self.image_filenames)):
                     save_path = os.path.join(user_dir, f"{idx}_{fname}")
@@ -551,7 +549,6 @@ class PosterSetupModal(discord.ui.Modal):
                             image_paths.append(save_path)
                             final_filenames.append(fname)
         elif self.existing_data and self.existing_data.get("image_paths"):
-            # WALANG bagong images, pero may LUMANG images na naka-save. I-PRESERVE natin!
             image_paths = self.existing_data["image_paths"]
             final_filenames = self.existing_data.get("image_filenames", [])
 
@@ -776,13 +773,10 @@ async def posting(ctx):
 async def updateposting(ctx):
     conf = get_user_meta(ctx.author.id).get("poster_config")
     if not conf: return await ctx.reply("❌ Walang naka-save na config. Gamitin muna ang `!posting`.")
-    
     image_urls, image_filenames = [], []
     if ctx.message.attachments:
         for att in ctx.message.attachments:
             image_urls.append(att.url); image_filenames.append(att.filename)
-            
-    # Dito natin ipinapasa ang existing config para ma-pre-fill ang modal
     await ctx.send(view=PosterPanel(is_update=True, existing_data=conf, image_urls=image_urls, image_filenames=image_filenames))
 
 @bot.command(name="checkposting")
@@ -795,6 +789,40 @@ async def checkposting(ctx):
     embed.add_field(name="Images Saved", value=f"`{len(conf.get('image_paths', []))}`", inline=True)
     embed.add_field(name="Status", value="`Running`" if ctx.author.id in ACTIVE_POSTERS else "`Stopped`", inline=True)
     await ctx.reply(embed=embed)
+
+# ====== ITO YUNG BAGONG COMMAND ======
+@bot.command(name="resumeposting")
+async def resumeposting(ctx):
+    """Ito yung command para i-continue ang naka-setup nang auto-poster nang hindi na nag-aayos ulit."""
+    uid = ctx.author.id
+    conf = get_user_meta(uid).get("poster_config")
+    
+    if not conf:
+        return await ctx.reply("❌ Wala kang naka-save na Auto-Poster. Gamitin muna ang `!posting`.")
+    
+    if uid in ACTIVE_POSTERS and ACTIVE_POSTERS[uid].running:
+        return await ctx.reply("✅ Naka-run na ang Auto-Poster mo. Gamitin ang `!stopposting` kung gusto mong itigil.")
+    
+    # I-set balik sa running = True
+    conf["running"] = True
+    await set_poster_config(uid, conf)
+    
+    # Kuhanin ang slowmode ng channels
+    channel_data = {}
+    async with aiohttp.ClientSession() as session:
+        for cid in conf["channels"]:
+            async with session.get(f"{API}/channels/{cid}", headers=uheaders(conf["token"])) as r:
+                if r.status == 200:
+                    channel_data[cid] = (await r.json()).get("rate_limit_per_user", 0)
+                else:
+                    channel_data[cid] = 0
+
+    task = PosterTask(ctx.author, channel_data, conf["token"], conf["text"], conf.get("image_paths", []), conf.get("image_filenames", []))
+    ACTIVE_POSTERS[uid] = task
+    
+    await ctx.reply(f"{emoji('verified')} **Auto-Poster Resumed!** (Tuloy-tuloy na ulit ang pag-post).")
+    asyncio.create_task(task.start())
+# ====================================
 
 @bot.command(name="deleteposting")
 async def deleteposting(ctx):
