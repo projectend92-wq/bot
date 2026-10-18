@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-COMBINED BOT: Cloud-Ready Quest Auto-Completer & Auto-Poster (With Flask Keep-Alive)
+COMBINED BOT: Cloud-Optimized Quest Auto-Completer & Auto-Poster (Pre-filled Updates)
 """
 
 import asyncio
@@ -13,6 +13,7 @@ import time
 import base64
 import shutil
 import re
+import gc
 from datetime import datetime
 from flask import Flask
 from threading import Thread
@@ -94,18 +95,19 @@ def uheaders(token: str) -> dict:
 async def uapi(session, method, url, token, data=None, retries=2):
     for attempt in range(1, retries + 1):
         try:
-            async with session.request(method, url, headers=uheaders(token), json=data, timeout=aiohttp.ClientTimeout(total=20)) as r:
+            async with session.request(method, url, headers=uheaders(token), json=data, timeout=aiohttp.ClientTimeout(total=30)) as r:
                 body = await r.text(); code = r.status
                 if 200 <= code < 300:
                     try: return json.loads(body) if body else {}
                     except json.JSONDecodeError: return None
                 if code == 429:
                     retry_after = float(json.loads(body).get("retry_after", 5))
+                    log(f"Rate limited. Waiting {retry_after}s...", "WARN")
                     await asyncio.sleep(retry_after); continue
                 if code == 401: raise QuestError("Invalid token (401)")
                 return None
         except Exception:
-            await asyncio.sleep(2)
+            await asyncio.sleep(3)
     return None
 
 async def fetch_quests(session, token):
@@ -400,7 +402,7 @@ class QuestSession:
         return False
 
 # =====================================================================
-# AUTO-POSTER ENGINE
+# AUTO-POSTER ENGINE (PRE-FILLED UPDATES & IMAGE PRESERVATION)
 # =====================================================================
 class PosterTask:
     def __init__(self, owner, channel_data, token, text, image_paths, image_filenames):
@@ -460,14 +462,18 @@ class PosterTask:
 
                 success = False; status_code = 500; retry_after = 0
                 try:
-                    async with session.post(f"{API}/channels/{cid}/messages", headers=headers, data=form) as r:
+                    async with session.post(f"{API}/channels/{cid}/messages", headers=headers, data=form, timeout=aiohttp.ClientTimeout(total=45)) as r:
                         success = (r.status in (200, 201)); status_code = r.status
                         if not success and r.status == 429:
                             try: retry_after = float(json.loads(await r.text()).get("retry_after", 5))
                             except Exception: retry_after = 5
-                except Exception: pass
+                except Exception as e: 
+                    log(f"[ERROR] Upload failed: {e}", "ERROR")
                 finally:
                     for f in opened_files: f.close()
+
+                gc.collect()
+                await asyncio.sleep(1) 
 
                 if success:
                     self.states[cid]["posts"] += 1
@@ -499,9 +505,11 @@ class PosterSetupModal(discord.ui.Modal):
 
     def __init__(self, title, existing_data=None, image_urls=None, image_filenames=None):
         super().__init__(title=title)
+        self.existing_data = existing_data # I-save ang existing data para mabasa sa on_submit
         self.image_urls = image_urls or []
         self.image_filenames = image_filenames or []
         
+        # PRE-FILL THE FIELDS
         if existing_data:
             self.token_input.default = existing_data.get("token", "")
             self.channel_input_1.default = existing_data.get("channels", [""])[0]
@@ -522,13 +530,17 @@ class PosterSetupModal(discord.ui.Modal):
         if cid2 and cid2.isdigit(): channels.append(cid2)
 
         if not channels: return await interaction.followup.send("❌ Invalid Channel ID(s).", ephemeral=True)
-        if not text and not self.image_urls: return await interaction.followup.send("❌ Need text or an attached image.", ephemeral=True)
+        if not text and not self.image_urls and not (self.existing_data and self.existing_data.get("image_paths")): 
+            return await interaction.followup.send("❌ Need text or an image.", ephemeral=True)
 
         user_dir = os.path.join(POSTER_IMG_DIR, str(uid))
         os.makedirs(user_dir, exist_ok=True)
         
         image_paths = []
+        final_filenames = []
+
         if self.image_urls:
+            # May BAGONG images na in-attach
             async with aiohttp.ClientSession() as session:
                 for idx, (url, fname) in enumerate(zip(self.image_urls, self.image_filenames)):
                     save_path = os.path.join(user_dir, f"{idx}_{fname}")
@@ -537,6 +549,11 @@ class PosterSetupModal(discord.ui.Modal):
                             with open(save_path, "wb") as f:
                                 f.write(await r.read())
                             image_paths.append(save_path)
+                            final_filenames.append(fname)
+        elif self.existing_data and self.existing_data.get("image_paths"):
+            # WALANG bagong images, pero may LUMANG images na naka-save. I-PRESERVE natin!
+            image_paths = self.existing_data["image_paths"]
+            final_filenames = self.existing_data.get("image_filenames", [])
 
         channel_data = {}
         async with aiohttp.ClientSession() as session:
@@ -555,13 +572,13 @@ class PosterSetupModal(discord.ui.Modal):
         
         conf = {
             "channels": channels, "text": text,
-            "image_paths": image_paths, "image_filenames": self.image_filenames,
+            "image_paths": image_paths, "image_filenames": final_filenames,
             "running": True, "created_at": time.time()
         }
         await set_poster_config(uid, conf)
         
         if uid in ACTIVE_POSTERS: ACTIVE_POSTERS[uid].running = False
-        task = PosterTask(interaction.user, channel_data, token, text, image_paths, self.image_filenames)
+        task = PosterTask(interaction.user, channel_data, token, text, image_paths, final_filenames)
         ACTIVE_POSTERS[uid] = task
         
         await interaction.followup.send(f"✅ Setup complete! Config saved to channel.", ephemeral=True)
@@ -759,10 +776,13 @@ async def posting(ctx):
 async def updateposting(ctx):
     conf = get_user_meta(ctx.author.id).get("poster_config")
     if not conf: return await ctx.reply("❌ Walang naka-save na config. Gamitin muna ang `!posting`.")
+    
     image_urls, image_filenames = [], []
     if ctx.message.attachments:
         for att in ctx.message.attachments:
             image_urls.append(att.url); image_filenames.append(att.filename)
+            
+    # Dito natin ipinapasa ang existing config para ma-pre-fill ang modal
     await ctx.send(view=PosterPanel(is_update=True, existing_data=conf, image_urls=image_urls, image_filenames=image_filenames))
 
 @bot.command(name="checkposting")
