@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-COMBINED BOT: Cloud-Optimized Quest Auto-Completer & Auto-Poster (With Resume Command)
+COMBINED BOT: Auto-Enroll Quest Completer & Persistent Auto-Poster (ALL EMBEDS)
 """
 
 import asyncio
@@ -8,7 +8,6 @@ import json
 import os
 import random
 import sys
-import threading
 import time
 import base64
 import shutil
@@ -32,9 +31,6 @@ app = Flask('')
 @app.route('/')
 def home(): return "Bot is alive!"
 
-@app.route('/health')
-def health(): return "OK", 200
-
 def run_web(): app.run(host='0.0.0.0', port=int(os.environ.get("PORT", 8080)))
 
 Thread(target=run_web, daemon=True).start()
@@ -49,7 +45,7 @@ except FileNotFoundError:
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN") or CFG.get("bot_token", "").strip()
 if not BOT_TOKEN:
-    print("[FATAL] Missing bot_token. Set env BOT_TOKEN or use config.json.")
+    print("[FATAL] Missing bot_token.")
     sys.exit(1)
 
 API = "https://discord.com/api/v9"
@@ -102,7 +98,6 @@ async def uapi(session, method, url, token, data=None, retries=2):
                     except json.JSONDecodeError: return None
                 if code == 429:
                     retry_after = float(json.loads(body).get("retry_after", 5))
-                    log(f"Rate limited. Waiting {retry_after}s...", "WARN")
                     await asyncio.sleep(retry_after); continue
                 if code == 401: raise QuestError("Invalid token (401)")
                 return None
@@ -121,13 +116,17 @@ def build_plan(quests):
     for q in quests:
         if not isinstance(q, dict): continue
         us = q.get("user_status") or {}
-        if not us.get("enrolled_at") or us.get("claimed_at"): continue
+        if us.get("claimed_at"): continue
+        
         cfg = q.get("config") or {}
         qid = q.get("id"); name = cfg.get("messages", {}).get("quest_name") or qid
+        
         if us.get("completed_at"):
             claim_only.append({"quest_id": qid, "name": name}); continue
+            
         tc = cfg.get("task_config") or cfg.get("task_config_v2") or {}
         tasks = tc.get("tasks") or {}
+        
         for ttype in ["WATCH_VIDEO", "PLAY_ON_DESKTOP", "STREAM_ON_DESKTOP", "PLAY_ACTIVITY"]:
             if ttype not in tasks: continue
             task = tasks[ttype]; target = int(task.get("target") or 0)
@@ -136,65 +135,71 @@ def build_plan(quests):
             if ttype in ["PLAY_ON_DESKTOP", "PLAY_ACTIVITY"]:
                 apps = task.get("applications") or []
                 if apps and isinstance(apps, list): app_id = apps[0].get("id")
-            plan.append({"quest_id": qid, "app_id": app_id, "task_type": ttype, "target_seconds": target, "name": name})
+            plan.append({
+                "quest_id": qid, "app_id": app_id, "task_type": ttype, 
+                "target_seconds": target, "name": name, "enrolled": bool(us.get("enrolled_at"))
+            })
     return plan, claim_only
 
 # ===== DISCORD CHANNEL STORAGE SYSTEM =====
 async def sync_tokens_from_channel():
     global _storage_channel
     _storage_channel = bot.get_channel(TOKEN_STORAGE_CHANNEL_ID)
-    if not _storage_channel:
-        log(f"[STORAGE] Channel {TOKEN_STORAGE_CHANNEL_ID} not found!", "ERROR")
-        return
-    log("[STORAGE] Syncing tokens from Discord channel...", "INFO")
+    if not _storage_channel: return
     count = 0
     async for msg in _storage_channel.history(limit=500):
         if msg.author.id != bot.user.id: continue
         try:
-            match = re.search(r'```json\n(.*?)\n```', msg.content, re.DOTALL)
-            if match:
-                data = json.loads(match.group(1))
-                uid = str(data.get("user_id"))
-                _tokens_cache[uid] = {
-                    "token": data.get("token", ""),
-                    "username": data.get("username", "Unknown"),
-                    "poster_config": data.get("poster_config", None)
-                }
-                _message_ids[uid] = msg.id
-                count += 1
-        except Exception as e:
-            log(f"[STORAGE] Failed to parse message {msg.id}: {e}", "WARN")
-    log(f"[STORAGE] Loaded {count} user tokens from channel.", "INFO")
+            # Kinukuha ang JSON mula sa loob ng Embed
+            if msg.embeds and msg.embeds[0].description:
+                match = re.search(r'```json\n(.*?)\n```', msg.embeds[0].description, re.DOTALL)
+                if match:
+                    data = json.loads(match.group(1))
+                    uid = str(data.get("user_id"))
+                    if uid == "None" or not uid:
+                        paths = data.get("poster_config", {}).get("image_paths", [])
+                        if paths:
+                            try: uid = paths[0].split("/")[1]
+                            except: pass
+                    if uid and uid != "None":
+                        _tokens_cache[uid] = {
+                            "token": data.get("token", ""),
+                            "username": data.get("username", "Unknown"),
+                            "poster_config": data.get("poster_config", None)
+                        }
+                        _message_ids[uid] = msg.id
+                        count += 1
+        except Exception: pass
+    log(f"[STORAGE] Loaded {count} tokens from channel.", "INFO")
 
 async def save_to_channel(user_id: str):
     if not _storage_channel: return
     data = _tokens_cache.get(str(user_id), {})
-    content = f"```json\n{json.dumps(data, indent=2)}\n```"
+    data["user_id"] = str(user_id)
+    
+    # Naka-Embed ang storage
+    embed = discord.Embed(title="🔐 Secure Token & Config Storage", color=0x2b2d31)
+    embed.description = f"```json\n{json.dumps(data, indent=2)}\n```"
+    embed.set_footer(text=f"User ID: {user_id}")
+    
     try:
         if str(user_id) in _message_ids:
             msg = await _storage_channel.fetch_message(_message_ids[str(user_id)])
-            await msg.edit(content=content)
+            await msg.edit(embed=embed)
         else:
-            msg = await _storage_channel.send(content=content)
+            msg = await _storage_channel.send(embed=embed)
             _message_ids[str(user_id)] = msg.id
-    except Exception as e:
-        log(f"[STORAGE] Failed to save {user_id}: {e}", "ERROR")
+    except Exception as e: log(f"[STORAGE] Save failed: {e}", "ERROR")
 
 # ===== TOKEN LOGIC =====
-def get_user_token(user_id: int) -> str:
-    return _tokens_cache.get(str(user_id), {}).get("token", "")
-
-def get_user_meta(user_id: int) -> dict:
-    return _tokens_cache.get(str(user_id), {})
-
-def has_user_token(user_id: int) -> bool:
-    return bool(get_user_token(user_id))
+def get_user_token(user_id: int) -> str: return _tokens_cache.get(str(user_id), {}).get("token", "")
+def get_user_meta(user_id: int) -> dict: return _tokens_cache.get(str(user_id), {})
+def has_user_token(user_id: int) -> bool: return bool(get_user_token(user_id))
 
 async def set_user_token(user_id: int, token: str, username: str = ""):
     uid = str(user_id)
     if uid not in _tokens_cache: _tokens_cache[uid] = {}
-    _tokens_cache[uid]["token"] = token
-    _tokens_cache[uid]["username"] = username
+    _tokens_cache[uid]["token"] = token; _tokens_cache[uid]["username"] = username
     await save_to_channel(uid)
 
 async def set_poster_config(user_id: int, config: dict):
@@ -213,19 +218,13 @@ async def delete_poster_config(user_id: int):
 
 # ===== EMOJI MANAGEMENT =====
 EMOJI_CACHE = {"animated": None, "moon2": None, "statusonline30": None, "loading": None, "verified": None, "questicon": None, "statusmajor": None, "warning": None, "redcircle": None, "greencircle": None, "lock": None}
-EMOJI_NAME_MAP = {
-    "animated": ["animated"], "moon2": ["moon2", "moon_2"], "statusonline30": ["statusonline30", "statusonline", "status_online_30"],
-    "loading": ["loading"], "verified": ["verified", "verified_new", "verify"], "questicon": ["questicon3d17", "questicon", "quest_icon"],
-    "statusmajor": ["statusmajor", "status_major"], "warning": ["warning", "alert", "exclamation", "!"],
-    "redcircle": ["redcircle", "red_circle", "red"], "greencircle": ["greencircle", "green_circle", "green"], "lock": ["lock", "locked", "slowmode"]
-}
+EMOJI_NAME_MAP = {"animated": ["animated"], "moon2": ["moon2", "moon_2"], "statusonline30": ["statusonline30", "statusonline", "status_online_30"], "loading": ["loading"], "verified": ["verified", "verified_new", "verify"], "questicon": ["questicon3d17", "questicon", "quest_icon"], "statusmajor": ["statusmajor", "status_major"], "warning": ["warning", "alert", "exclamation", "!"], "redcircle": ["redcircle", "red_circle", "red"], "greencircle": ["greencircle", "green_circle", "green"], "lock": ["lock", "locked", "slowmode"]}
 EMOJI_FALLBACK = {"animated": "📊", "moon2": "🌙", "statusonline30": "🟢", "loading": "⏳", "verified": "✅", "questicon": "🎮", "statusmajor": "⏹️", "warning": "⚠️", "redcircle": "🔴", "greencircle": "🟢", "lock": "🔒"}
 
 def load_emojis():
     for emoji_obj in bot.emojis:
-        emoji_lower = emoji_obj.name.lower()
         for key, aliases in EMOJI_NAME_MAP.items():
-            if EMOJI_CACHE[key] is None and emoji_lower in [a.lower() for a in aliases]:
+            if EMOJI_CACHE[key] is None and emoji_obj.name.lower() in [a.lower() for a in aliases]:
                 EMOJI_CACHE[key] = emoji_obj; break
 
 def emoji(key: str, fallback: str = "") -> str:
@@ -259,11 +258,11 @@ class QuestSession:
         ongoing.sort(key=lambda x: x[1]["pct"], reverse=True); return completed + ongoing
 
     def get_quest_text(self):
-        lines = []; loading_em = emoji("loading", "⏳"); done_em = emoji("verified", "✅")
+        lines = []
         for name, q in self.get_sorted_quests():
             pct = q["pct"]
-            if q["done"]: lines.append(f"{done_em} {self.progress_bar(100)} `100%` — {name}")
-            else: lines.append(f"{loading_em} {self.progress_bar(pct)} `{pct:3}%` — {name}")
+            if q["done"]: lines.append(f"{emoji('verified')} {self.progress_bar(100)} `100%` — {name}")
+            else: lines.append(f"{emoji('loading')} {self.progress_bar(pct)} `{pct:3}%` — {name}")
         return "\n".join(lines) if lines else "*No quests available*"
 
     def elapsed_str(self):
@@ -272,15 +271,16 @@ class QuestSession:
     async def status_layout(self):
         elapsed = time.time() - self.started; mins, secs = int(elapsed // 60), int(elapsed % 60)
         color = discord.Colour(0x57F287) if self.done_count == self.total and self.total > 0 else discord.Colour(0xFFA500) if self.done_count > 0 else discord.Colour(0x4E5058)
-        status_em = emoji("statusonline30", "🟢"); state = "Active" if self.running else "Complete"
+        state = "Active" if self.running else "Complete"
         text = (f"## Quest Session Status\n\n**Progress:** `{self.done_count}/{self.total}` quests completed\n"
-                f"{status_em} **{state}** · `{mins}m {secs}s` elapsed\n\n### Quest Log\n{self.get_quest_text()}")
+                f"{emoji('statusonline30')} **{state}** · `{mins}m {secs}s` elapsed\n\n### Quest Log\n{self.get_quest_text()}")
         if len(text) > 3900: text = text[:3890] + "\n..."
         class V(discord.ui.LayoutView): pass
         view = V(); c = discord.ui.Container(accent_colour=color); c.add_item(discord.ui.TextDisplay(text)); view.add_item(c); return view
 
-    async def safe_send(self, content):
-        try: await self.owner.send(content); return True
+    async def safe_send_embed(self, title, description, color=0x3498db):
+        embed = discord.Embed(title=title, description=description, color=color)
+        try: await self.owner.send(embed=embed); return True
         except Exception: return False
 
     async def send_intro_line(self, key, text):
@@ -303,24 +303,35 @@ class QuestSession:
                 except discord.NotFound: self.status_message = await self.owner.send(view=view)
         except Exception: pass
 
+    async def enroll_quest(self, session, qid):
+        url = f"{API}/quests/{qid}/enroll"
+        try:
+            res = await uapi(session, "POST", url, self.token, data={"location": 11})
+            if res is not None: return True
+        except Exception: pass
+        return False
+
     async def run(self):
         async with aiohttp.ClientSession() as session:
             try:
                 me = await uapi(session, "GET", f"{API}/users/@me", self.token)
                 if not me:
-                    await self.safe_send("**Session Failed**\nInvalid token. Use `!settoken` again."); self.running = False; return
+                    await self.safe_send_embed("Session Failed", "Invalid token. Use `!settoken` again.", 0xe74c3c)
+                    self.running = False; return
                 await self.send_intro_line("statusonline30", f"Authenticated as **{me.get('username', 'Unknown')}**")
             except QuestError as e:
-                await self.safe_send(f"**Token Error:** {e}"); self.running = False; return
+                await self.safe_send_embed("Token Error", str(e), 0xe74c3c); self.running = False; return
 
             await self.send_intro_line("loading", "Retrieving quest list...")
             quests = await fetch_quests(session, self.token)
             if not quests:
-                await self.safe_send("**Failed:** Unable to fetch quests."); self.running = False; return
+                await self.safe_send_embed("Failed", "Unable to fetch quests. Token might be expired.", 0xe74c3c)
+                self.running = False; return
 
             plan, claim_only = build_plan(quests)
             if not plan and not claim_only:
-                await self.safe_send(f"**No actionable quests** — Found `{len(quests)}` total, but you haven't accepted any."); self.running = False; return
+                await self.safe_send_embed("No Actionable Quests", f"Found `{len(quests)}` total, but none are automatable or claimable.", 0xf39c12)
+                self.running = False; return
 
             self.total = len(plan) + len(claim_only)
             for p in plan: self.quests[p["name"]] = {"pct": 0, "done": False}
@@ -335,12 +346,18 @@ class QuestSession:
             for i, p in enumerate(plan):
                 if not self.running: break
                 self.current_quest = p["name"]
+                
+                if not p.get("enrolled", False):
+                    log(f"[QUEST] Auto-enrolling {p['name']}...", "INFO")
+                    await self.enroll_quest(session, p["quest_id"])
+                    await asyncio.sleep(2)
+                    
                 try: await self.run_one(session, p)
                 except QuestError: pass
                 if i < len(plan) - 1: await asyncio.sleep(random.uniform(2, 5))
 
             self.current_quest = "Complete"; self.running = False; await self.update_embed()
-            await self.safe_send("**All quests completed successfully.**")
+            await self.safe_send_embed("Success", "All quests completed successfully.", 0x2ecc71)
 
     async def run_one(self, session, p):
         if p["task_type"] == "WATCH_VIDEO": await self.run_video_quest(session, p)
@@ -402,16 +419,12 @@ class QuestSession:
         return False
 
 # =====================================================================
-# AUTO-POSTER ENGINE
+# AUTO-POSTER ENGINE (FIXED STUCK/RATE LIMIT & ALL EMBEDS)
 # =====================================================================
 class PosterTask:
     def __init__(self, owner, channel_data, token, text, image_paths, image_filenames):
-        self.owner = owner
-        self.channel_data = channel_data
-        self.token = token
-        self.text = text
-        self.image_paths = image_paths
-        self.image_filenames = image_filenames
+        self.owner = owner; self.channel_data = channel_data; self.token = token
+        self.text = text; self.image_paths = image_paths; self.image_filenames = image_filenames
         self.running = True
         self.states = {cid: {"status": "Starting...", "posts": 0, "wait": 0} for cid in channel_data.keys()}
         self.status_msg = None
@@ -420,7 +433,7 @@ class PosterTask:
         await self.update_embed()
         tasks = []
         for i, (cid, slow) in enumerate(self.channel_data.items()):
-            if i > 0: await asyncio.sleep(2)
+            if i > 0: await asyncio.sleep(2) 
             tasks.append(asyncio.create_task(self.channel_loop(cid, slow)))
         await asyncio.gather(*tasks)
 
@@ -431,7 +444,6 @@ class PosterTask:
             if state['wait'] > 0: status_text += f"\n{emoji('lock')} Waiting: `{state['wait']}s`"
             embed.add_field(name=f"Channel: <#{cid}>", value=status_text, inline=False)
         embed.set_footer(text=f"Live Updates • {datetime.now().strftime('%H:%M:%S')}")
-        
         try:
             if self.status_msg is None: self.status_msg = await self.owner.send(embed=embed)
             else: await self.status_msg.edit(embed=embed)
@@ -443,56 +455,56 @@ class PosterTask:
                 self.states[cid]["status"] = f"{emoji('loading')} Posting..."
                 self.states[cid]["wait"] = 0
                 await self.update_embed()
+                log(f"[POSTER] Attempting post to {cid}...", "INFO")
                 
                 form = aiohttp.FormData()
                 form.add_field("payload_json", json.dumps({"content": self.text or ""}), content_type="application/json")
-                
                 opened_files = []
                 if self.image_paths:
                     for idx, (path, fname) in enumerate(zip(self.image_paths, self.image_filenames)):
                         try:
-                            f = open(path, "rb")
-                            opened_files.append(f)
+                            f = open(path, "rb"); opened_files.append(f)
                             form.add_field(f"files[{idx}]", f, filename=fname)
-                        except Exception as e:
-                            log(f"[ERROR] Cannot open saved image {path}: {e}", "ERROR")
+                        except Exception as e: log(f"[ERROR] Cannot open {path}: {e}", "ERROR")
 
-                headers = uheaders(self.token)
-                headers.pop("Content-Type", None)
-
+                headers = uheaders(self.token); headers.pop("Content-Type", None)
                 success = False; status_code = 500; retry_after = 0
+                
                 try:
                     async with session.post(f"{API}/channels/{cid}/messages", headers=headers, data=form, timeout=aiohttp.ClientTimeout(total=45)) as r:
                         success = (r.status in (200, 201)); status_code = r.status
                         if not success and r.status == 429:
                             try: retry_after = float(json.loads(await r.text()).get("retry_after", 5))
                             except Exception: retry_after = 5
-                except Exception as e: 
-                    log(f"[ERROR] Upload failed: {e}", "ERROR")
+                except Exception as e: log(f"[ERROR] Upload failed: {e}", "ERROR")
                 finally:
                     for f in opened_files: f.close()
-
                 gc.collect()
-                await asyncio.sleep(1) 
 
                 if success:
+                    log(f"[POSTER] Success posting to {cid}!", "INFO")
                     self.states[cid]["posts"] += 1
                     self.states[cid]["status"] = f"{emoji('verified')} Posted!"
                     wait_time = slowmode + 2
-                    for sec in range(wait_time, 0, -1):
-                        if not self.running: break
-                        self.states[cid]["status"] = f"{emoji('lock')} Cooldown"
-                        self.states[cid]["wait"] = sec
-                        await self.update_embed()
-                        await asyncio.sleep(1)
+                    
+                    # I-update ang embed nang isang beses lang, tapos tahimik na mag-hintay
+                    self.states[cid]["status"] = f"{emoji('lock')} Cooldown"
+                    self.states[cid]["wait"] = wait_time
+                    await self.update_embed()
+                    
+                    log(f"[POSTER] {cid} waiting {wait_time}s.", "INFO")
+                    await asyncio.sleep(wait_time)
+                    
+                    self.states[cid]["wait"] = 0
                 elif status_code == 429:
+                    log(f"[POSTER] Rate limited on {cid}. Waiting {retry_after}s.", "WARN")
                     self.states[cid]["status"] = f"{emoji('warning')} Rate Limited"
-                    for sec in range(int(retry_after), 0, -1):
-                        if not self.running: break
-                        self.states[cid]["wait"] = sec
-                        await self.update_embed()
-                        await asyncio.sleep(1)
+                    self.states[cid]["wait"] = int(retry_after)
+                    await self.update_embed()
+                    await asyncio.sleep(retry_after)
+                    self.states[cid]["wait"] = 0
                 else:
+                    log(f"[POSTER] Failed on {cid} (HTTP {status_code}).", "ERROR")
                     self.states[cid]["status"] = f"{emoji('redcircle')} Failed (HTTP {status_code})"
                     await self.update_embed()
                     break
@@ -505,38 +517,29 @@ class PosterSetupModal(discord.ui.Modal):
 
     def __init__(self, title, existing_data=None, image_urls=None, image_filenames=None):
         super().__init__(title=title)
-        self.existing_data = existing_data 
-        self.image_urls = image_urls or []
-        self.image_filenames = image_filenames or []
-        
+        self.existing_data = existing_data; self.image_urls = image_urls or []; self.image_filenames = image_filenames or []
         if existing_data:
             self.token_input.default = existing_data.get("token", "")
             self.channel_input_1.default = existing_data.get("channels", [""])[0]
-            if len(existing_data.get("channels", [])) > 1:
-                self.channel_input_2.default = existing_data["channels"][1]
+            if len(existing_data.get("channels", [])) > 1: self.channel_input_2.default = existing_data["channels"][1]
             self.text_input.default = existing_data.get("text", "")
 
     async def on_submit(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
         uid = interaction.user.id
-        token = self.token_input.value.strip()
-        cid1 = self.channel_input_1.value.strip()
-        cid2 = self.channel_input_2.value.strip() if self.channel_input_2.value else None
-        text = self.text_input.value or ""
+        token = self.token_input.value.strip(); cid1 = self.channel_input_1.value.strip()
+        cid2 = self.channel_input_2.value.strip() if self.channel_input_2.value else None; text = self.text_input.value or ""
 
         channels = []
         if cid1.isdigit(): channels.append(cid1)
         if cid2 and cid2.isdigit(): channels.append(cid2)
 
-        if not channels: return await interaction.followup.send("❌ Invalid Channel ID(s).", ephemeral=True)
+        if not channels: return await interaction.followup.send(embed=discord.Embed(title="Error", description="Invalid Channel ID.", color=0xe74c3c), ephemeral=True)
         if not text and not self.image_urls and not (self.existing_data and self.existing_data.get("image_paths")): 
-            return await interaction.followup.send("❌ Need text or an image.", ephemeral=True)
+            return await interaction.followup.send(embed=discord.Embed(title="Error", description="Need text or an image.", color=0xe74c3c), ephemeral=True)
 
-        user_dir = os.path.join(POSTER_IMG_DIR, str(uid))
-        os.makedirs(user_dir, exist_ok=True)
-        
-        image_paths = []
-        final_filenames = []
+        user_dir = os.path.join(POSTER_IMG_DIR, str(uid)); os.makedirs(user_dir, exist_ok=True)
+        image_paths = []; final_filenames = []
 
         if self.image_urls:
             async with aiohttp.ClientSession() as session:
@@ -544,50 +547,36 @@ class PosterSetupModal(discord.ui.Modal):
                     save_path = os.path.join(user_dir, f"{idx}_{fname}")
                     async with session.get(url) as r:
                         if r.status == 200:
-                            with open(save_path, "wb") as f:
-                                f.write(await r.read())
-                            image_paths.append(save_path)
-                            final_filenames.append(fname)
+                            with open(save_path, "wb") as f: f.write(await r.read())
+                            image_paths.append(save_path); final_filenames.append(fname)
         elif self.existing_data and self.existing_data.get("image_paths"):
-            image_paths = self.existing_data["image_paths"]
-            final_filenames = self.existing_data.get("image_filenames", [])
+            image_paths = self.existing_data["image_paths"]; final_filenames = self.existing_data.get("image_filenames", [])
 
         channel_data = {}
         async with aiohttp.ClientSession() as session:
             async with session.get(f"{API}/users/@me", headers=uheaders(token)) as r:
-                if r.status != 200: return await interaction.followup.send("❌ Invalid User Token.", ephemeral=True)
+                if r.status != 200: return await interaction.followup.send(embed=discord.Embed(title="Error", description="Invalid Token.", color=0xe74c3c), ephemeral=True)
                 user_data = await r.json()
             
             for cid in channels:
                 async with session.get(f"{API}/channels/{cid}", headers=uheaders(token)) as r:
-                    if r.status == 200:
-                        channel_data[cid] = (await r.json()).get("rate_limit_per_user", 0)
-                    else:
-                        return await interaction.followup.send(f"❌ Cannot access channel {cid}.", ephemeral=True)
+                    if r.status == 200: channel_data[cid] = (await r.json()).get("rate_limit_per_user", 0)
+                    else: return await interaction.followup.send(embed=discord.Embed(title="Error", description=f"Cannot access channel {cid}.", color=0xe74c3c), ephemeral=True)
 
         await set_user_token(uid, token, user_data.get("username", "Unknown"))
-        
-        conf = {
-            "channels": channels, "text": text,
-            "image_paths": image_paths, "image_filenames": final_filenames,
-            "running": True, "created_at": time.time()
-        }
+        conf = {"channels": channels, "text": text, "image_paths": image_paths, "image_filenames": final_filenames, "running": True, "created_at": time.time()}
         await set_poster_config(uid, conf)
         
         if uid in ACTIVE_POSTERS: ACTIVE_POSTERS[uid].running = False
         task = PosterTask(interaction.user, channel_data, token, text, image_paths, final_filenames)
         ACTIVE_POSTERS[uid] = task
         
-        await interaction.followup.send(f"✅ Setup complete! Config saved to channel.", ephemeral=True)
+        await interaction.followup.send(embed=discord.Embed(title="Success", description="Setup complete! Check DMs.", color=0x2ecc71), ephemeral=True)
         asyncio.create_task(task.start())
 
 class PosterSetupRow(discord.ui.ActionRow):
     def __init__(self, is_update=False, existing_data=None, image_urls=None, image_filenames=None):
-        super().__init__()
-        self.is_update = is_update
-        self.existing_data = existing_data
-        self.image_urls = image_urls or []
-        self.image_filenames = image_filenames or []
+        super().__init__(); self.is_update = is_update; self.existing_data = existing_data; self.image_urls = image_urls or []; self.image_filenames = image_filenames or []
 
     @discord.ui.button(label="Setup Auto-Poster", style=discord.ButtonStyle.secondary, custom_id="poster:setup", emoji=resolve_button_emoji("questicon"))
     async def open_modal(self, itx: discord.Interaction, button: discord.ui.Button):
@@ -598,16 +587,11 @@ class PosterPanel(discord.ui.LayoutView):
     def __init__(self, is_update=False, existing_data=None, image_urls=None, image_filenames=None):
         super().__init__(timeout=None)
         c = discord.ui.Container(accent_colour=ACCENT_GREY)
-        
         text = f"## {'Update' if is_update else 'Setup'} Auto-Poster\n\nClick below to configure.\n\n"
         if image_urls: text += f"{emoji('verified')} **New Images Attached:** `{len(image_urls)}` file(s)\n"
         elif existing_data and existing_data.get("image_paths"): text += f"{emoji('verified')} **Using Saved Images:** `{len(existing_data['image_paths'])}` file(s)\n"
         else: text += f"{emoji('warning')} **No image attached.** Text only.\n"
-
-        c.add_item(discord.ui.TextDisplay(text))
-        c.add_item(discord.ui.Separator())
-        c.add_item(PosterSetupRow(is_update, existing_data, image_urls, image_filenames))
-        self.add_item(c)
+        c.add_item(discord.ui.TextDisplay(text)); c.add_item(discord.ui.Separator()); c.add_item(PosterSetupRow(is_update, existing_data, image_urls, image_filenames)); self.add_item(c)
 
 # ===== DM CLEANUP =====
 async def purge_dm_messages(channel, limit=200, concurrency=3):
@@ -640,34 +624,26 @@ class AdminBoard:
         view.add_item(container); return view
     def _build_text(self):
         now = datetime.now().strftime("%H:%M:%S"); elapsed = int(time.time() - self.started); m, s = divmod(elapsed, 60)
-        board_em = emoji("animated", "📊"); moon_em = emoji("moon2", "🌙"); online_em = emoji("statusonline30", "🟢"); loading_em = emoji("loading", "⏳"); verified_em = emoji("verified", "✅")
-        lines = [f"## {board_em} Admin Control Board", f"**Active Sessions:** `{len(ACTIVE_SESSIONS)}/{MAX_CONCURRENT_SESSIONS}` · **Uptime:** `{m}m {s}s` · **Updated:** `{now}`", "", "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━", ""]
-        if not ACTIVE_SESSIONS:
-            lines.extend([f"{moon_em} *No active sessions at this time.*", "", "Users may click **Start Quest** on the panel to begin."])
+        lines = [f"## {emoji('animated')} Admin Control Board", f"**Active Sessions:** `{len(ACTIVE_SESSIONS)}/{MAX_CONCURRENT_SESSIONS}` · **Uptime:** `{m}m {s}s` · **Updated:** `{now}`", "", "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━", ""]
+        if not ACTIVE_SESSIONS: lines.extend([f"{emoji('moon2')} *No active sessions at this time.*"])
         else:
-            lines.append(f"### {moon_em} Active Sessions"); lines.append("")
+            lines.append(f"### {emoji('moon2')} Active Sessions"); lines.append("")
             for idx, (uid, sess) in enumerate(list(ACTIVE_SESSIONS.items())[:15]):
-                status_marker = emoji("statusonline30", "🟢") if sess.running else "🔴"
                 user_pct = int(sess.done_count / sess.total * 100) if sess.total else 0
-                user_bar = sess.progress_bar(user_pct, width=16)
                 uname = get_user_meta(uid).get("username", "Unknown")
-                in_progress = sess.total - sess.done_count
-                state_text = f"{verified_em} Complete" if sess.done_count == sess.total and sess.total > 0 else f"{loading_em} {in_progress} remaining" if in_progress > 0 else "Initializing"
-                lines.append(f"{status_marker} **{uname}** · `{sess.elapsed_str()}`")
-                lines.append(f"     `{user_bar}` **{user_pct}%** · `{sess.done_count}/{sess.total}`")
+                state_text = f"{emoji('verified')} Complete" if sess.done_count == sess.total else f"{emoji('loading')} {sess.total - sess.done_count} remaining"
+                lines.append(f"{emoji('statusonline30')} **{uname}** · `{sess.elapsed_str()}`")
+                lines.append(f"     `{sess.progress_bar(user_pct, 16)}` **{user_pct}%** · `{sess.done_count}/{sess.total}`")
                 lines.append(f"     {state_text}"); lines.append("")
-            if len(ACTIVE_SESSIONS) > 15: lines.extend([f"*...and {len(ACTIVE_SESSIONS) - 15} more sessions*", ""])
-        lines.extend(["━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━", "", f"### {online_em} Statistics", "", f"**Registered users:** `{len(_tokens_cache)}`"])
-        text = "\n".join(lines)
-        if len(text) > 3900: text = text[:3890] + "\n...\n*Session limit reached*"
-        return text
+        lines.extend(["━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━", "", f"### {emoji('statusonline30')} Statistics", "", f"**Registered users:** `{len(_tokens_cache)}`"])
+        return "\n".join(lines)
     async def update(self):
         view = self._build_view()
         if self.message is None: self.message = await self.channel.send(view=view)
         else:
             try: await self.message.edit(view=view)
             except discord.NotFound: self.message = await self.channel.send(view=view)
-            except discord.HTTPException as e: log(f"Admin board edit failed: {e}", "WARN")
+            except discord.HTTPException: pass
 
 # ===== QUEST UI =====
 ACCENT_GREY = discord.Colour(0x4E5058)
@@ -675,21 +651,19 @@ ACCENT_GREY = discord.Colour(0x4E5058)
 class PanelRow(discord.ui.ActionRow):
     def __init__(self):
         super().__init__()
-        self.children[0].emoji = resolve_button_emoji("questicon")
-        self.children[1].emoji = resolve_button_emoji("statusonline30")
-        self.children[2].emoji = resolve_button_emoji("statusmajor")
+        self.children[0].emoji = resolve_button_emoji("questicon"); self.children[1].emoji = resolve_button_emoji("statusonline30"); self.children[2].emoji = resolve_button_emoji("statusmajor")
 
     @discord.ui.button(label="Start Quest", style=discord.ButtonStyle.secondary, custom_id="quest:start")
     async def start(self, itx, button):
         uid = itx.user.id
-        if uid in ACTIVE_SESSIONS and ACTIVE_SESSIONS[uid].running: return await itx.response.send_message("You already have an active session running.", ephemeral=True)
+        if uid in ACTIVE_SESSIONS and ACTIVE_SESSIONS[uid].running: return await itx.response.send_message(embed=discord.Embed(description="You already have an active session running.", color=0xf39c12), ephemeral=True)
         user_token = get_user_token(uid)
-        if not user_token: return await itx.response.send_message("**No token registered.**\n\n**Setup:** DM this bot `!settoken`", ephemeral=True)
-        if len(ACTIVE_SESSIONS) >= MAX_CONCURRENT_SESSIONS: return await itx.response.send_message(f"**Server at capacity.**", ephemeral=True)
+        if not user_token: return await itx.response.send_message(embed=discord.Embed(description="**No token registered.**\nUse `!settoken` via DM.", color=0xe74c3c), ephemeral=True)
+        if len(ACTIVE_SESSIONS) >= MAX_CONCURRENT_SESSIONS: return await itx.response.send_message(embed=discord.Embed(description="**Server at capacity.**", color=0xe74c3c), ephemeral=True)
 
         session = QuestSession(itx.user, user_token); ACTIVE_SESSIONS[uid] = session
         log(f"Session started: {itx.user} (ID: {uid}) — active: {len(ACTIVE_SESSIONS)}", "INFO")
-        await itx.response.send_message(f"Session initialized. Check your direct messages for progress.", ephemeral=True)
+        await itx.response.send_message(embed=discord.Embed(description="Session initialized. Check your DMs for progress.", color=0x2ecc71), ephemeral=True)
         asyncio.create_task(self._run_session_with_cleanup(uid, session))
 
     @staticmethod
@@ -703,24 +677,22 @@ class PanelRow(discord.ui.ActionRow):
     @discord.ui.button(label="Status", style=discord.ButtonStyle.secondary, custom_id="quest:status")
     async def status(self, itx, button):
         s = ACTIVE_SESSIONS.get(itx.user.id)
-        if not s: return await itx.response.send_message("No active session found.", ephemeral=True)
+        if not s: return await itx.response.send_message(embed=discord.Embed(description="No active session found.", color=0xe74c3c), ephemeral=True)
         await itx.response.send_message(view=await s.status_layout(), ephemeral=True)
 
     @discord.ui.button(label="Stop Quest", style=discord.ButtonStyle.secondary, custom_id="quest:stop")
     async def stop(self, itx, button):
         s = ACTIVE_SESSIONS.get(itx.user.id)
-        if not s or not s.running: return await itx.response.send_message("No active session to stop.", ephemeral=True)
+        if not s or not s.running: return await itx.response.send_message(embed=discord.Embed(description="No active session to stop.", color=0xe74c3c), ephemeral=True)
         s.running = False
-        await itx.response.send_message("Session termination requested. Finishing current task...", ephemeral=True)
+        await itx.response.send_message(embed=discord.Embed(description="Session termination requested. Finishing current task...", color=0xf39c12), ephemeral=True)
 
 class QuestPanel(discord.ui.LayoutView):
     def __init__(self):
         super().__init__(timeout=None)
         c = discord.ui.Container(accent_colour=ACCENT_GREY)
         c.add_item(discord.ui.TextDisplay("## Quest Auto-Completer\n\n**Available Actions:**\n• **Start Quest** — Begin automated quest completion\n• **Status** — View your current session progress\n• **Stop Quest** — Terminate your active session\n\n**First Time Users:**\nUse `!settoken` via DM to register."))
-        c.add_item(discord.ui.Separator())
-        c.add_item(PanelRow())
-        self.add_item(c)
+        c.add_item(discord.ui.Separator()); c.add_item(PanelRow()); self.add_item(c)
 
 # ===== BOT =====
 intents = discord.Intents.default()
@@ -765,24 +737,22 @@ async def on_disconnect():
 async def posting(ctx):
     image_urls, image_filenames = [], []
     if ctx.message.attachments:
-        for att in ctx.message.attachments:
-            image_urls.append(att.url); image_filenames.append(att.filename)
+        for att in ctx.message.attachments: image_urls.append(att.url); image_filenames.append(att.filename)
     await ctx.send(view=PosterPanel(is_update=False, image_urls=image_urls, image_filenames=image_filenames))
 
 @bot.command(name="updateposting")
 async def updateposting(ctx):
     conf = get_user_meta(ctx.author.id).get("poster_config")
-    if not conf: return await ctx.reply("❌ Walang naka-save na config. Gamitin muna ang `!posting`.")
+    if not conf: return await ctx.reply(embed=discord.Embed(description="❌ Walang naka-save na config. Gamitin muna ang `!posting`.", color=0xe74c3c))
     image_urls, image_filenames = [], []
     if ctx.message.attachments:
-        for att in ctx.message.attachments:
-            image_urls.append(att.url); image_filenames.append(att.filename)
+        for att in ctx.message.attachments: image_urls.append(att.url); image_filenames.append(att.filename)
     await ctx.send(view=PosterPanel(is_update=True, existing_data=conf, image_urls=image_urls, image_filenames=image_filenames))
 
 @bot.command(name="checkposting")
 async def checkposting(ctx):
     conf = get_user_meta(ctx.author.id).get("poster_config")
-    if not conf: return await ctx.reply("❌ Wala kang naka-save na Auto-Poster.")
+    if not conf: return await ctx.reply(embed=discord.Embed(description="❌ Wala kang naka-save na Auto-Poster.", color=0xe74c3c))
     embed = discord.Embed(title="📋 Saved Auto-Poster Config", color=0x3498db)
     embed.add_field(name="Channels", value=", ".join([f"<#{c}>" for c in conf["channels"]]), inline=False)
     embed.add_field(name="Text", value=f"```{conf['text'][:100] or 'None'}```", inline=False)
@@ -790,161 +760,139 @@ async def checkposting(ctx):
     embed.add_field(name="Status", value="`Running`" if ctx.author.id in ACTIVE_POSTERS else "`Stopped`", inline=True)
     await ctx.reply(embed=embed)
 
-# ====== ITO YUNG BAGONG COMMAND ======
 @bot.command(name="resumeposting")
 async def resumeposting(ctx):
-    """Ito yung command para i-continue ang naka-setup nang auto-poster nang hindi na nag-aayos ulit."""
     uid = ctx.author.id
     conf = get_user_meta(uid).get("poster_config")
+    if not conf: return await ctx.reply(embed=discord.Embed(description="❌ Wala kang naka-save na Auto-Poster.", color=0xe74c3c))
+    if uid in ACTIVE_POSTERS and ACTIVE_POSTERS[uid].running: return await ctx.reply(embed=discord.Embed(description="✅ Naka-run na ang Auto-Poster mo.", color=0x2ecc71))
     
-    if not conf:
-        return await ctx.reply("❌ Wala kang naka-save na Auto-Poster. Gamitin muna ang `!posting`.")
-    
-    if uid in ACTIVE_POSTERS and ACTIVE_POSTERS[uid].running:
-        return await ctx.reply("✅ Naka-run na ang Auto-Poster mo. Gamitin ang `!stopposting` kung gusto mong itigil.")
-    
-    # I-set balik sa running = True
-    conf["running"] = True
-    await set_poster_config(uid, conf)
-    
-    # Kuhanin ang slowmode ng channels
+    conf["running"] = True; await set_poster_config(uid, conf)
     channel_data = {}
     async with aiohttp.ClientSession() as session:
         for cid in conf["channels"]:
             async with session.get(f"{API}/channels/{cid}", headers=uheaders(conf["token"])) as r:
-                if r.status == 200:
-                    channel_data[cid] = (await r.json()).get("rate_limit_per_user", 0)
-                else:
-                    channel_data[cid] = 0
+                if r.status == 200: channel_data[cid] = (await r.json()).get("rate_limit_per_user", 0)
+                else: channel_data[cid] = 0
 
     task = PosterTask(ctx.author, channel_data, conf["token"], conf["text"], conf.get("image_paths", []), conf.get("image_filenames", []))
     ACTIVE_POSTERS[uid] = task
-    
-    await ctx.reply(f"{emoji('verified')} **Auto-Poster Resumed!** (Tuloy-tuloy na ulit ang pag-post).")
+    await ctx.reply(embed=discord.Embed(description="✅ **Auto-Poster Resumed!**", color=0x2ecc71))
     asyncio.create_task(task.start())
-# ====================================
 
 @bot.command(name="deleteposting")
 async def deleteposting(ctx):
     uid = ctx.author.id
-    if not get_user_meta(uid).get("poster_config"): return await ctx.reply("❌ Walang mabubura na config.")
-    if uid in ACTIVE_POSTERS:
-        ACTIVE_POSTERS[uid].running = False
-        del ACTIVE_POSTERS[uid]
+    if not get_user_meta(uid).get("poster_config"): return await ctx.reply(embed=discord.Embed(description="❌ Walang mabubura na config.", color=0xe74c3c))
+    if uid in ACTIVE_POSTERS: ACTIVE_POSTERS[uid].running = False; del ACTIVE_POSTERS[uid]
     await delete_poster_config(uid)
-    await ctx.reply(f"{emoji('verified')} **Auto-Poster Deleted.**")
+    await ctx.reply(embed=discord.Embed(description="✅ **Auto-Poster Deleted.**", color=0x2ecc71))
 
 @bot.command(name="stopposting")
 async def stopposting(ctx):
     uid = ctx.author.id
     conf = get_user_meta(uid).get("poster_config")
-    if not conf: return await ctx.reply("❌ Wala kang active na auto-poster.")
-    if uid in ACTIVE_POSTERS:
-        ACTIVE_POSTERS[uid].running = False
-        del ACTIVE_POSTERS[uid]
-    conf["running"] = False
-    await set_poster_config(uid, conf)
-    await ctx.reply(f"{emoji('verified')} **Auto-Poster stopped.**")
+    if not conf: return await ctx.reply(embed=discord.Embed(description="❌ Wala kang active na auto-poster.", color=0xe74c3c))
+    if uid in ACTIVE_POSTERS: ACTIVE_POSTERS[uid].running = False; del ACTIVE_POSTERS[uid]
+    conf["running"] = False; await set_poster_config(uid, conf)
+    await ctx.reply(embed=discord.Embed(description="✅ **Auto-Poster stopped.**", color=0x2ecc71))
 
 @bot.command(name="questpanel")
 @commands.has_permissions(manage_guild=True)
 async def questpanel(ctx):
     try: await ctx.send(view=QuestPanel())
-    except discord.HTTPException as e: await ctx.send(f"Failed: `{e}`")
+    except discord.HTTPException as e: await ctx.send(embed=discord.Embed(description=f"Failed: `{e}`", color=0xe74c3c))
 
 @bot.command(name="adminboard")
 @commands.has_permissions(manage_guild=True)
 async def adminboard(ctx):
     global ACTIVE_ADMIN_BOARD
     if ACTIVE_ADMIN_BOARD: await ACTIVE_ADMIN_BOARD.stop()
-    board = AdminBoard(ctx.channel)
-    ACTIVE_ADMIN_BOARD = board
-    await ctx.send("Starting dashboard...")
+    board = AdminBoard(ctx.channel); ACTIVE_ADMIN_BOARD = board
+    await ctx.send(embed=discord.Embed(description="Starting dashboard...", color=0x3498db))
     await board.start()
 
 @bot.command(name="stopboard")
 @commands.has_permissions(manage_guild=True)
 async def stopboard(ctx):
     global ACTIVE_ADMIN_BOARD
-    if not ACTIVE_ADMIN_BOARD: return await ctx.reply("No active admin board to stop.")
-    await ACTIVE_ADMIN_BOARD.stop()
-    ACTIVE_ADMIN_BOARD = None
-    await ctx.reply("Admin board stopped.")
+    if not ACTIVE_ADMIN_BOARD: return await ctx.reply(embed=discord.Embed(description="No active admin board to stop.", color=0xf39c12))
+    await ACTIVE_ADMIN_BOARD.stop(); ACTIVE_ADMIN_BOARD = None
+    await ctx.reply(embed=discord.Embed(description="Admin board stopped.", color=0x2ecc71))
 
 @bot.command(name="settoken")
 async def settoken_cmd(ctx, token: str = None):
     if not isinstance(ctx.channel, discord.DMChannel):
         try: await ctx.message.delete()
         except: pass
-        return await ctx.author.send("**Privacy Notice:** Register via Direct Message.")
-    if not token: return await ctx.reply("**Usage:** `!settoken <token>`")
+        return await ctx.author.send(embed=discord.Embed(description="**Privacy Notice:** Register via Direct Message.", color=0xf39c12))
+    if not token: return await ctx.reply(embed=discord.Embed(description="**Usage:** `!settoken <token>`", color=0xf39c12))
     
     async with aiohttp.ClientSession() as session:
         try:
             async with session.get(f"{API}/users/@me", headers=uheaders(token), timeout=aiohttp.ClientTimeout(total=10)) as r:
-                if r.status != 200: return await ctx.reply(f"**Invalid token.** (HTTP {r.status})")
+                if r.status != 200: return await ctx.reply(embed=discord.Embed(description=f"**Invalid token.** (HTTP {r.status})", color=0xe74c3c))
                 user_data = await r.json()
-        except Exception as e: return await ctx.reply(f"**Network error:** `{e}`")
+        except Exception as e: return await ctx.reply(embed=discord.Embed(description=f"**Network error:** `{e}`", color=0xe74c3c))
 
     username = user_data.get("username", "Unknown")
     await set_user_token(ctx.author.id, token, username=username)
     try: await ctx.message.delete()
     except: pass
-    await ctx.author.send(f"**Token Registered!**\nAccount: `{username}`\nYou can now use the panels.")
+    await ctx.author.send(embed=discord.Embed(description=f"**Token Registered!**\nAccount: `{username}`\nYou can now use the panels.", color=0x2ecc71))
 
 @bot.command(name="removetoken")
 async def removetoken_cmd(ctx):
-    if not isinstance(ctx.channel, discord.DMChannel): return await ctx.reply("Use in DM.")
+    if not isinstance(ctx.channel, discord.DMChannel): return await ctx.reply(embed=discord.Embed(description="Use in DM.", color=0xf39c12))
     if str(ctx.author.id) in _tokens_cache:
         _tokens_cache.pop(str(ctx.author.id))
         if str(ctx.author.id) in _message_ids:
             try:
                 msg = await _storage_channel.fetch_message(_message_ids[str(ctx.author.id)])
-                await msg.delete()
-                del _message_ids[str(ctx.author.id)]
+                await msg.delete(); del _message_ids[str(ctx.author.id)]
             except Exception: pass
-    await ctx.reply("**Token removed.**")
+    await ctx.reply(embed=discord.Embed(description="**Token removed.**", color=0x2ecc71))
 
 @bot.command(name="mytoken")
 async def mytoken_cmd(ctx):
     if not isinstance(ctx.channel, discord.DMChannel): return
     if has_user_token(ctx.author.id):
         meta = get_user_meta(ctx.author.id)
-        await ctx.reply(f"**Registered:** Yes\n**Account:** `{meta.get('username', 'Unknown')}`")
-    else: await ctx.reply("**Registered:** No\n\nUse `!settoken` to register.")
+        await ctx.reply(embed=discord.Embed(description=f"**Registered:** Yes\n**Account:** `{meta.get('username', 'Unknown')}`", color=0x2ecc71))
+    else: await ctx.reply(embed=discord.Embed(description="**Registered:** No\n\nUse `!settoken` to register.", color=0xe74c3c))
 
 @bot.command(name="sessions")
 @commands.has_permissions(manage_guild=True)
 async def sessions_cmd(ctx):
-    if not ACTIVE_SESSIONS: return await ctx.reply("No active sessions.")
+    if not ACTIVE_SESSIONS: return await ctx.reply(embed=discord.Embed(description="No active sessions.", color=0xf39c12))
     lines = [f"**Active:** `{len(ACTIVE_SESSIONS)}`\n"]
     for uid, s in ACTIVE_SESSIONS.items():
         lines.append(f"🟢 **{get_user_meta(uid).get('username', 'Unknown')}** · `{s.done_count}/{s.total}`")
-    await ctx.reply("\n".join(lines))
+    await ctx.reply(embed=discord.Embed(description="\n".join(lines), color=0x3498db))
 
 @bot.command(name="stopall")
 @commands.has_permissions(manage_guild=True)
 async def stopall_cmd(ctx):
     for uid, s in list(ACTIVE_SESSIONS.items()): s.running = False
-    await ctx.reply(f"Terminated `{len(ACTIVE_SESSIONS)}` sessions.")
+    await ctx.reply(embed=discord.Embed(description=f"Terminated `{len(ACTIVE_SESSIONS)}` sessions.", color=0x2ecc71))
 
 @bot.command(name="stopuser")
 @commands.has_permissions(manage_guild=True)
 async def stopuser_cmd(ctx, user: discord.User = None):
-    if not user: return await ctx.reply("Usage: `!stopuser @user`")
+    if not user: return await ctx.reply(embed=discord.Embed(description="Usage: `!stopuser @user`", color=0xf39c12))
     s = ACTIVE_SESSIONS.get(user.id)
-    if not s: return await ctx.reply(f"No active session for {user.mention}.")
+    if not s: return await ctx.reply(embed=discord.Embed(description=f"No active session for {user.mention}.", color=0xe74c3c))
     s.running = False
-    await ctx.reply(f"Terminating session for {user.mention}...")
+    await ctx.reply(embed=discord.Embed(description=f"Terminating session for {user.mention}...", color=0x2ecc71))
 
 @bot.command(name="dmclear")
 async def dmclear_cmd(ctx):
-    if not isinstance(ctx.channel, discord.DMChannel): return await ctx.reply("Use in DM.")
-    notice = await ctx.send("Clearing messages...")
+    if not isinstance(ctx.channel, discord.DMChannel): return await ctx.reply(embed=discord.Embed(description="Use in DM.", color=0xf39c12))
+    notice = await ctx.send(embed=discord.Embed(description="Clearing messages...", color=0x3498db))
     deleted = await purge_dm_messages(ctx.channel)
     try: await notice.delete()
     except: pass
-    confirm = await ctx.send(f"Cleared `{deleted}` message(s).")
+    confirm = await ctx.send(embed=discord.Embed(description=f"Cleared `{deleted}` message(s).", color=0x2ecc71))
     await asyncio.sleep(3)
     try: await confirm.delete()
     except: pass
@@ -952,13 +900,12 @@ async def dmclear_cmd(ctx):
 @bot.event
 async def on_command_error(ctx, error):
     if isinstance(error, commands.CommandNotFound): return
-    if isinstance(error, commands.MissingPermissions): return await ctx.reply("Need Manage Server permission.")
-    try: await ctx.reply(f"**Error:** `{error}`")
+    if isinstance(error, commands.MissingPermissions): return await ctx.reply(embed=discord.Embed(description="Need Manage Server permission.", color=0xe74c3c))
+    try: await ctx.reply(embed=discord.Embed(description=f"**Error:** `{error}`", color=0xe74c3c))
     except: pass
 
 # ===== MAIN =====
 if __name__ == "__main__":
     try:
         bot.run(BOT_TOKEN)
-    except KeyboardInterrupt:
-        print("\nBot stopped.")
+    except KeyboardInterrupt: print("\nBot stopped.")
