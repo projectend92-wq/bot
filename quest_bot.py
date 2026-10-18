@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-COMBINED BOT: Auto-Enroll Quest Completer & Persistent Auto-Poster (Native Timestamps)
+COMBINED BOT: Auto-Enroll Quest Completer & Persistent Auto-Poster (Custom Emojis & File Check)
 """
 
 import asyncio
@@ -129,7 +129,7 @@ def build_plan(quests):
         
         for ttype in ["WATCH_VIDEO", "PLAY_ON_DESKTOP", "STREAM_ON_DESKTOP", "PLAY_ACTIVITY"]:
             if ttype not in tasks: continue
-            task = tasks[ttype]; target = int(task.get("target") or 0)
+            task = tasks[ttype]; target = int(task.get("target", 0) or 0)
             if target <= 0: continue
             app_id = None
             if ttype in ["PLAY_ON_DESKTOP", "PLAY_ACTIVITY"]:
@@ -221,9 +221,33 @@ async def delete_poster_config(user_id: int):
     if os.path.exists(user_dir): shutil.rmtree(user_dir)
 
 # ===== EMOJI MANAGEMENT =====
-EMOJI_CACHE = {"animated": None, "moon2": None, "statusonline30": None, "loading": None, "verified": None, "questicon": None, "statusmajor": None, "warning": None, "redcircle": None, "greencircle": None, "lock": None}
-EMOJI_NAME_MAP = {"animated": ["animated"], "moon2": ["moon2", "moon_2"], "statusonline30": ["statusonline30", "statusonline", "status_online_30"], "loading": ["loading"], "verified": ["verified", "verified_new", "verify"], "questicon": ["questicon3d17", "questicon", "quest_icon"], "statusmajor": ["statusmajor", "status_major"], "warning": ["warning", "alert", "exclamation", "!"], "redcircle": ["redcircle", "red_circle", "red"], "greencircle": ["greencircle", "green_circle", "green"], "lock": ["lock", "locked", "slowmode"]}
-EMOJI_FALLBACK = {"animated": "📊", "moon2": "🌙", "statusonline30": "🟢", "loading": "⏳", "verified": "✅", "questicon": "🎮", "statusmajor": "⏹️", "warning": "⚠️", "redcircle": "🔴", "greencircle": "🟢", "lock": "🔒"}
+EMOJI_CACHE = {
+    "animated": None, "moon2": None, "statusonline30": None, "loading": None, 
+    "verified": None, "questicon": None, "statusmajor": None, "warning": None, 
+    "redcircle": None, "greencircle": None, "lock": None, 
+    "arrow": None, "Verified": None 
+}
+
+EMOJI_NAME_MAP = {
+    "animated": ["animated"], "moon2": ["moon2", "moon_2"], 
+    "statusonline30": ["statusonline30", "statusonline", "status_online_30"], 
+    "loading": ["loading"], "verified": ["verified", "verified_new", "verify"], 
+    "questicon": ["questicon3d17", "questicon", "quest_icon"], 
+    "statusmajor": ["statusmajor", "status_major"], 
+    "warning": ["warning", "alert", "exclamation", "!"], 
+    "redcircle": ["redcircle", "red_circle", "red"], 
+    "greencircle": ["greencircle", "green_circle", "green"], 
+    "lock": ["lock", "locked", "slowmode"],
+    "arrow": ["arrow", "arrow_right", "arrow_forward"],
+    "Verified": ["verified", "Verified", "verify_badge"]
+}
+
+EMOJI_FALLBACK = {
+    "animated": "📊", "moon2": "🌙", "statusonline30": "🟢", "loading": "⏳", 
+    "verified": "✅", "questicon": "🎮", "statusmajor": "⏹️", "warning": "⚠️", 
+    "redcircle": "🔴", "greencircle": "🟢", "lock": "🔒",
+    "arrow": "➡️", "Verified": "✅"
+}
 
 def load_emojis():
     for emoji_obj in bot.emojis:
@@ -423,7 +447,7 @@ class QuestSession:
         return False
 
 # =====================================================================
-# AUTO-POSTER ENGINE (WITH DEBUG LOGS & LONGER TIMEOUT)
+# AUTO-POSTER ENGINE (WITH CUSTOM STATUS EMOJIS & MISSING FILE CHECK)
 # =====================================================================
 class PosterTask:
     def __init__(self, owner, channel_data, token, text, image_paths, image_filenames):
@@ -445,7 +469,7 @@ class PosterTask:
         embed = discord.Embed(title=f"{emoji('animated')} Auto-Poster Status", color=0x2b2d31)
         for cid, state in self.states.items():
             status_text = f"{state['status']} (Post #{state['posts']})"
-            if state['wait'] > 0: status_text += f"\n{emoji('lock')} Ready <t:{state['wait']}:R>"
+            if state['wait'] > 0: status_text += f"\n{emoji('arrow')} Ready <t:{state['wait']}:R>"
             embed.add_field(name=f"Channel: <#{cid}>", value=status_text, inline=False)
         embed.set_footer(text=f"Live Updates • {datetime.now().strftime('%H:%M:%S')}")
         try:
@@ -458,7 +482,7 @@ class PosterTask:
             while self.running:
                 self.states[cid]["status"] = f"{emoji('loading')} Posting..."
                 self.states[cid]["wait"] = 0
-                asyncio.create_task(self.update_embed()) # Fire and forget para hindi mag-hang
+                asyncio.create_task(self.update_embed())
                 
                 log(f"[POSTER] Preparing upload to {cid}...", "INFO")
                 form = aiohttp.FormData()
@@ -466,19 +490,24 @@ class PosterTask:
                 
                 opened_files = []
                 if self.image_paths:
-                    log(f"[POSTER] Attaching {len(self.image_paths)} images...", "INFO")
                     for idx, (path, fname) in enumerate(zip(self.image_paths, self.image_filenames)):
-                        try:
-                            f = open(path, "rb"); opened_files.append(f)
-                            form.add_field(f"files[{idx}]", f, filename=fname)
-                        except Exception as e: log(f"[ERROR] Cannot open {path}: {e}", "ERROR")
+                        if os.path.exists(path):
+                            try:
+                                f = open(path, "rb"); opened_files.append(f)
+                                form.add_field(f"files[{idx}]", f, filename=fname)
+                            except Exception as e: log(f"[ERROR] Cannot open {path}: {e}", "ERROR")
+                        else:
+                            log(f"[WARN] Image missing from disk: {path}", "WARN")
+                            # Mag-send ng warning sa DM
+                            await self.owner.send(embed=discord.Embed(
+                                description=f"⚠️ **Image Missing:** `{fname}`\n\nNag-restart ang server (Render) at nabura ang files. Paki-`!updateposting` at i-attach ulit ang images para gumana.",
+                                color=0xe74c3c
+                            ))
 
                 headers = uheaders(self.token); headers.pop("Content-Type", None)
                 success = False; status_code = 500; retry_after = 0
                 
                 try:
-                    log(f"[POSTER] Sending to Discord API...", "INFO")
-                    # Tinagyugan natin ng oras para umabot sa 120s
                     async with session.post(f"{API}/channels/{cid}/messages", headers=headers, data=form, timeout=aiohttp.ClientTimeout(total=120)) as r:
                         success = (r.status in (200, 201)); status_code = r.status
                         if not success:
@@ -492,8 +521,6 @@ class PosterTask:
                     for f in opened_files: f.close()
                 gc.collect()
 
-                log(f"[POSTER] Post result: Success={success}, Code={status_code}", "INFO")
-
                 if success:
                     self.states[cid]["posts"] += 1
                     wait_time = slowmode + 2
@@ -504,7 +531,7 @@ class PosterTask:
                     await asyncio.sleep(wait_time)
                     self.states[cid]["wait"] = 0
                 elif status_code == 429:
-                    self.states[cid]["status"] = f"{emoji('warning')} Rate Limited"
+                    self.states[cid]["status"] = f"{emoji('Verified')} Rate Limited"
                     self.states[cid]["wait"] = int(time.time()) + int(retry_after)
                     await self.update_embed()
                     await asyncio.sleep(retry_after)
