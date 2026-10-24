@@ -175,6 +175,24 @@ async def fetch_quests(session, token):
         return result.get("quests", [])
     return None
 
+def _parse_ts(value):
+    """ISO timestamp -> unix seconds (None if missing/unparseable)."""
+    if not value: return None
+    try:
+        return datetime.fromisoformat(str(value).replace("Z", "+00:00")).timestamp()
+    except Exception:
+        return None
+
+def quest_inactive_reason(q):
+    """Return 'expired' / 'not started' if the quest can't be done right now, else None."""
+    cfg = q.get("config") or {}
+    now = time.time()
+    exp = _parse_ts(cfg.get("expires_at") or q.get("expires_at"))
+    start = _parse_ts(cfg.get("starts_at") or q.get("starts_at"))
+    if exp is not None and exp < now: return "expired"
+    if start is not None and start > now: return "not started"
+    return None
+
 def build_plan(quests):
     plan = []; claim_only = []
     for q in quests:
@@ -184,6 +202,13 @@ def build_plan(quests):
 
         cfg = q.get("config") or {}
         qid = q.get("id"); name = cfg.get("messages", {}).get("quest_name") or qid
+
+        # Skip quests that already ended (or haven't started) - they can't be completed or claimed
+        reason = quest_inactive_reason(q)
+        log(f"[QUEST] {name}: starts_at={cfg.get('starts_at')} expires_at={cfg.get('expires_at')}", "INFO")
+        if reason:
+            log(f"[QUEST] Skipping '{name}' ({reason})", "INFO")
+            continue
 
         if us.get("completed_at"):
             claim_only.append({"quest_id": qid, "name": name}); continue
