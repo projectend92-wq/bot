@@ -1,0 +1,9 @@
+{
+  "max_concurrent": 50,
+  "admin_board_refresh": 10,
+  "bot_activity": "Quest Automated",
+  "bot_activity_type": "playing",
+  "min_post_interval": 60,
+  "post_gap": 8,
+  "cf_pause_seconds": 1800
+}
