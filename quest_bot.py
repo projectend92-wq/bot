@@ -1,6 +1,14 @@
 #!/usr/bin/env python3
 """
-COMBINED BOT: Auto-Enroll Quest Completer & Persistent Auto-Poster (Custom Emojis & File Check)
+COMBINED BOT: Auto-Enroll Quest Completer & Persistent Auto-Poster
+STABLE VERSION - fixes:
+  1. Removed on_disconnect (it was killing posters on every gateway reconnect)
+  2. Auto-resume now reads real channel slowmode + a minimum post interval
+  3. Poster no longer dies permanently on one failed request (retry w/ backoff)
+  4. /health endpoint reflects the REAL Discord connection state
+  5. Watchdog probes the Discord REST API and restarts the process if it's stuck
+  6. Image backup in the storage channel (Render's disk is wiped on restart)
+  7. Logs are flushed immediately (visible in Render logs)
 """
 
 import asyncio
@@ -9,7 +17,6 @@ import os
 import random
 import sys
 import time
-import base64
 import shutil
 import re
 import gc
@@ -22,19 +29,8 @@ try:
     import discord
     from discord.ext import commands
 except ImportError as e:
-    print(f"[FATAL] Missing dependency: {e}")
+    print(f"[FATAL] Missing dependency: {e}", flush=True)
     sys.exit(1)
-
-# ===== FLASK KEEP-ALIVE =====
-app = Flask('')
-
-@app.route('/')
-def home(): return "Bot is alive!"
-
-def run_web(): app.run(host='0.0.0.0', port=int(os.environ.get("PORT", 8080)))
-
-Thread(target=run_web, daemon=True).start()
-# ============================================================
 
 # ===== CONFIG =====
 try:
@@ -45,7 +41,7 @@ except FileNotFoundError:
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN") or CFG.get("bot_token", "").strip()
 if not BOT_TOKEN:
-    print("[FATAL] Missing bot_token.")
+    print("[FATAL] Missing bot_token.", flush=True)
     sys.exit(1)
 
 API = "https://discord.com/api/v9"
@@ -57,11 +53,36 @@ MAX_CONCURRENT_SESSIONS = CFG.get("max_concurrent", 50)
 ADMIN_BOARD_REFRESH = CFG.get("admin_board_refresh", 10)
 BOT_ACTIVITY_NAME = CFG.get("bot_activity", "Quest Automated")
 BOT_ACTIVITY_TYPE = CFG.get("bot_activity_type", "playing")
+MIN_POST_INTERVAL = CFG.get("min_post_interval", 15)   # never post faster than this (seconds)
+
+# ===== SHARED STATE =====
+STATE = {"ready": False, "last_ok": time.time()}
+
+# ===== FLASK KEEP-ALIVE + HEALTH =====
+app = Flask('')
+
+@app.route('/')
+def home():
+    return "Bot is alive!"
+
+@app.route('/health')
+def health():
+    # Reports the REAL Discord status, not just "Flask is running"
+    try:
+        ok = STATE["ready"] and not bot.is_closed() and (time.time() - STATE["last_ok"] < 600)
+    except NameError:
+        ok = False
+    return ("ok", 200) if ok else ("bot down", 500)
+
+def run_web():
+    app.run(host='0.0.0.0', port=int(os.environ.get("PORT", 8080)), use_reloader=False)
+
+Thread(target=run_web, daemon=True).start()
 
 # ===== IN-MEMORY STORAGE =====
-_tokens_cache = {}      
-_message_ids = {}       
-_storage_channel = None 
+_tokens_cache = {}
+_message_ids = {}
+_storage_channel = None
 
 ACTIVE_SESSIONS = {}
 SESSION_SEMAPHORE = None
@@ -71,10 +92,12 @@ ACTIVE_ADMIN_BOARD = None
 # ===== LOGGING & ERRORS =====
 def log(msg, level="INFO"):
     line = f"[{datetime.now():%H:%M:%S}] [{level:7}] {msg}"
-    print(line)
+    print(line, flush=True)
     try:
-        with open(LOG_FILE, "a", encoding="utf-8") as f: f.write(line + "\n")
-    except OSError: pass
+        with open(LOG_FILE, "a", encoding="utf-8") as f:
+            f.write(line + "\n")
+    except OSError:
+        pass
 
 class QuestError(Exception): pass
 
@@ -91,16 +114,21 @@ def uheaders(token: str) -> dict:
 async def uapi(session, method, url, token, data=None, retries=2):
     for attempt in range(1, retries + 1):
         try:
-            async with session.request(method, url, headers=uheaders(token), json=data, timeout=aiohttp.ClientTimeout(total=30)) as r:
+            async with session.request(method, url, headers=uheaders(token), json=data,
+                                       timeout=aiohttp.ClientTimeout(total=30)) as r:
                 body = await r.text(); code = r.status
                 if 200 <= code < 300:
                     try: return json.loads(body) if body else {}
                     except json.JSONDecodeError: return None
                 if code == 429:
-                    retry_after = float(json.loads(body).get("retry_after", 5))
-                    await asyncio.sleep(retry_after); continue
+                    try: retry_after = float(json.loads(body).get("retry_after", 5))
+                    except Exception: retry_after = float(r.headers.get("Retry-After", 5) or 5)
+                    log(f"[API] 429 on {url} - waiting {retry_after}s", "WARN")
+                    await asyncio.sleep(min(retry_after, 120)); continue
                 if code == 401: raise QuestError("Invalid token (401)")
                 return None
+        except QuestError:
+            raise
         except Exception:
             await asyncio.sleep(3)
     return None
@@ -117,16 +145,16 @@ def build_plan(quests):
         if not isinstance(q, dict): continue
         us = q.get("user_status") or {}
         if us.get("claimed_at"): continue
-        
+
         cfg = q.get("config") or {}
         qid = q.get("id"); name = cfg.get("messages", {}).get("quest_name") or qid
-        
+
         if us.get("completed_at"):
             claim_only.append({"quest_id": qid, "name": name}); continue
-            
+
         tc = cfg.get("task_config") or cfg.get("task_config_v2") or {}
         tasks = tc.get("tasks") or {}
-        
+
         for ttype in ["WATCH_VIDEO", "PLAY_ON_DESKTOP", "STREAM_ON_DESKTOP", "PLAY_ACTIVITY"]:
             if ttype not in tasks: continue
             task = tasks[ttype]; target = int(task.get("target", 0) or 0)
@@ -136,7 +164,7 @@ def build_plan(quests):
                 apps = task.get("applications") or []
                 if apps and isinstance(apps, list): app_id = apps[0].get("id")
             plan.append({
-                "quest_id": qid, "app_id": app_id, "task_type": ttype, 
+                "quest_id": qid, "app_id": app_id, "task_type": ttype,
                 "target_seconds": target, "name": name, "enrolled": bool(us.get("enrolled_at"))
             })
     return plan, claim_only
@@ -145,7 +173,10 @@ def build_plan(quests):
 async def sync_tokens_from_channel():
     global _storage_channel
     _storage_channel = bot.get_channel(TOKEN_STORAGE_CHANNEL_ID)
-    if not _storage_channel: return
+    if not _storage_channel:
+        try: _storage_channel = await bot.fetch_channel(TOKEN_STORAGE_CHANNEL_ID)
+        except Exception as e:
+            log(f"[STORAGE] Cannot access storage channel: {e}", "ERROR"); return
     count = 0
     async for msg in _storage_channel.history(limit=500):
         if msg.author.id != bot.user.id: continue
@@ -153,18 +184,18 @@ async def sync_tokens_from_channel():
             raw_text = msg.content
             if msg.embeds and msg.embeds[0].description:
                 raw_text = msg.embeds[0].description
-                
+
             match = re.search(r'```json\n(.*?)\n```', raw_text, re.DOTALL)
             if match:
                 data = json.loads(match.group(1))
                 uid = str(data.get("user_id"))
-                
+
                 if uid == "None" or not uid:
-                    paths = data.get("poster_config", {}).get("image_paths", [])
+                    paths = (data.get("poster_config") or {}).get("image_paths", [])
                     if paths:
                         try: uid = paths[0].split("/")[1]
-                        except: pass
-                
+                        except Exception: pass
+
                 if uid and uid != "None":
                     _tokens_cache[uid] = {
                         "token": data.get("token", ""),
@@ -181,11 +212,11 @@ async def save_to_channel(user_id: str):
     if not _storage_channel: return
     data = _tokens_cache.get(str(user_id), {})
     data["user_id"] = str(user_id)
-    
+
     embed = discord.Embed(title="🔐 Secure Token & Config Storage", color=0x2b2d31)
     embed.description = f"```json\n{json.dumps(data, indent=2)}\n```"
     embed.set_footer(text=f"User ID: {user_id}")
-    
+
     try:
         if str(user_id) in _message_ids:
             msg = await _storage_channel.fetch_message(_message_ids[str(user_id)])
@@ -193,7 +224,37 @@ async def save_to_channel(user_id: str):
         else:
             msg = await _storage_channel.send(embed=embed)
             _message_ids[str(user_id)] = msg.id
-    except Exception as e: log(f"[STORAGE] Save failed: {e}", "ERROR")
+    except Exception as e:
+        log(f"[STORAGE] Save failed: {e}", "ERROR")
+
+async def backup_images(paths, filenames):
+    """Upload images to the storage channel so they survive Render restarts."""
+    if not _storage_channel or not paths: return None
+    try:
+        files = [discord.File(p, filename=fn) for p, fn in zip(paths, filenames)]
+        m = await _storage_channel.send(content="🖼️ Image backup", files=files[:10])
+        return m.id
+    except Exception as e:
+        log(f"[STORAGE] Image backup failed: {e}", "WARN")
+        return None
+
+async def restore_missing_images(uid):
+    """Re-download images from the backup message if Render wiped the disk."""
+    conf = get_user_meta(uid).get("poster_config")
+    if not conf or not conf.get("image_paths"): return
+    if all(os.path.exists(p) for p in conf["image_paths"]): return
+    mid = conf.get("image_msg_id")
+    if not mid or not _storage_channel:
+        log(f"[RESTORE] No backup available for user {uid}", "WARN"); return
+    try:
+        msg = await _storage_channel.fetch_message(mid)
+        for path, att in zip(conf["image_paths"], msg.attachments):
+            if not os.path.exists(path):
+                os.makedirs(os.path.dirname(path), exist_ok=True)
+                await att.save(path)
+        log(f"[RESTORE] Images restored for user {uid}", "INFO")
+    except Exception as e:
+        log(f"[RESTORE] Failed for {uid}: {e}", "ERROR")
 
 # ===== TOKEN LOGIC =====
 def get_user_token(user_id: int) -> str: return _tokens_cache.get(str(user_id), {}).get("token", "")
@@ -220,31 +281,47 @@ async def delete_poster_config(user_id: int):
     user_dir = os.path.join(POSTER_IMG_DIR, uid)
     if os.path.exists(user_dir): shutil.rmtree(user_dir)
 
+async def fetch_slowmodes(token, channels):
+    """Get the real slowmode of each channel (0 if it can't be read)."""
+    result = {}
+    async with aiohttp.ClientSession() as session:
+        for cid in channels:
+            sm = 0
+            try:
+                async with session.get(f"{API}/channels/{cid}", headers=uheaders(token),
+                                       timeout=aiohttp.ClientTimeout(total=15)) as r:
+                    if r.status == 200:
+                        sm = (await r.json()).get("rate_limit_per_user", 0) or 0
+            except Exception as e:
+                log(f"[POSTER] Could not read slowmode of {cid}: {e}", "WARN")
+            result[cid] = sm
+    return result
+
 # ===== EMOJI MANAGEMENT =====
 EMOJI_CACHE = {
-    "animated": None, "moon2": None, "statusonline30": None, "loading": None, 
-    "verified": None, "questicon": None, "statusmajor": None, "warning": None, 
-    "redcircle": None, "greencircle": None, "lock": None, 
-    "arrow": None, "Verified": None 
+    "animated": None, "moon2": None, "statusonline30": None, "loading": None,
+    "verified": None, "questicon": None, "statusmajor": None, "warning": None,
+    "redcircle": None, "greencircle": None, "lock": None,
+    "arrow": None, "Verified": None
 }
 
 EMOJI_NAME_MAP = {
-    "animated": ["animated"], "moon2": ["moon2", "moon_2"], 
-    "statusonline30": ["statusonline30", "statusonline", "status_online_30"], 
-    "loading": ["loading"], "verified": ["verified", "verified_new", "verify"], 
-    "questicon": ["questicon3d17", "questicon", "quest_icon"], 
-    "statusmajor": ["statusmajor", "status_major"], 
-    "warning": ["warning", "alert", "exclamation", "!"], 
-    "redcircle": ["redcircle", "red_circle", "red"], 
-    "greencircle": ["greencircle", "green_circle", "green"], 
+    "animated": ["animated"], "moon2": ["moon2", "moon_2"],
+    "statusonline30": ["statusonline30", "statusonline", "status_online_30"],
+    "loading": ["loading"], "verified": ["verified", "verified_new", "verify"],
+    "questicon": ["questicon3d17", "questicon", "quest_icon"],
+    "statusmajor": ["statusmajor", "status_major"],
+    "warning": ["warning", "alert", "exclamation", "!"],
+    "redcircle": ["redcircle", "red_circle", "red"],
+    "greencircle": ["greencircle", "green_circle", "green"],
     "lock": ["lock", "locked", "slowmode"],
     "arrow": ["arrow", "arrow_right", "arrow_forward"],
     "Verified": ["verified", "Verified", "verify_badge"]
 }
 
 EMOJI_FALLBACK = {
-    "animated": "📊", "moon2": "🌙", "statusonline30": "🟢", "loading": "⏳", 
-    "verified": "✅", "questicon": "🎮", "statusmajor": "⏹️", "warning": "⚠️", 
+    "animated": "📊", "moon2": "🌙", "statusonline30": "🟢", "loading": "⏳",
+    "verified": "✅", "questicon": "🎮", "statusmajor": "⏹️", "warning": "⚠️",
     "redcircle": "🔴", "greencircle": "🟢", "lock": "🔒",
     "arrow": "➡️", "Verified": "✅"
 }
@@ -265,7 +342,8 @@ def resolve_button_emoji(key: str):
 
 def build_bot_activity():
     act_type = BOT_ACTIVITY_TYPE.lower()
-    type_map = {"playing": discord.ActivityType.playing, "watching": discord.ActivityType.watching, "listening": discord.ActivityType.listening, "competing": discord.ActivityType.competing}
+    type_map = {"playing": discord.ActivityType.playing, "watching": discord.ActivityType.watching,
+                "listening": discord.ActivityType.listening, "competing": discord.ActivityType.competing}
     return discord.Activity(type=type_map.get(act_type, discord.ActivityType.playing), name=BOT_ACTIVITY_NAME)
 
 # ===== QUEST SESSION =====
@@ -374,12 +452,12 @@ class QuestSession:
             for i, p in enumerate(plan):
                 if not self.running: break
                 self.current_quest = p["name"]
-                
+
                 if not p.get("enrolled", False):
                     log(f"[QUEST] Auto-enrolling {p['name']}...", "INFO")
                     await self.enroll_quest(session, p["quest_id"])
                     await asyncio.sleep(2)
-                    
+
                 try: await self.run_one(session, p)
                 except QuestError: pass
                 if i < len(plan) - 1: await asyncio.sleep(random.uniform(2, 5))
@@ -447,8 +525,10 @@ class QuestSession:
         return False
 
 # =====================================================================
-# AUTO-POSTER ENGINE (WITH CUSTOM STATUS EMOJIS & MISSING FILE CHECK)
+# AUTO-POSTER ENGINE (self-healing)
 # =====================================================================
+FATAL_CODES = (401, 403, 404)   # these will never fix themselves -> stop
+
 class PosterTask:
     def __init__(self, owner, channel_data, token, text, image_paths, image_filenames):
         self.owner = owner; self.channel_data = channel_data; self.token = token
@@ -456,16 +536,21 @@ class PosterTask:
         self.running = True
         self.states = {cid: {"status": "Starting...", "posts": 0, "wait": 0} for cid in channel_data.keys()}
         self.status_msg = None
+        self._last_embed = 0
 
     async def start(self):
-        await self.update_embed()
+        await restore_missing_images(self.owner.id)
+        await self.update_embed(force=True)
         tasks = []
         for i, (cid, slow) in enumerate(self.channel_data.items()):
-            if i > 0: await asyncio.sleep(2) 
+            if i > 0: await asyncio.sleep(2)
             tasks.append(asyncio.create_task(self.channel_loop(cid, slow)))
-        await asyncio.gather(*tasks)
+        await asyncio.gather(*tasks, return_exceptions=True)
 
-    async def update_embed(self):
+    async def update_embed(self, force=False):
+        # Throttle embed edits so we don't spam the API
+        if not force and time.time() - self._last_embed < 3: return
+        self._last_embed = time.time()
         embed = discord.Embed(title=f"{emoji('animated')} Auto-Poster Status", color=0x2b2d31)
         for cid, state in self.states.items():
             status_text = f"{state['status']} (Post #{state['posts']})"
@@ -477,69 +562,94 @@ class PosterTask:
             else: await self.status_msg.edit(embed=embed)
         except Exception: pass
 
+    async def _post_once(self, session, cid):
+        """One upload attempt. Returns (status_code, retry_after)."""
+        form = aiohttp.FormData()
+        form.add_field("payload_json", json.dumps({"content": self.text or ""}), content_type="application/json")
+
+        opened_files = []
+        for idx, (path, fname) in enumerate(zip(self.image_paths or [], self.image_filenames or [])):
+            if os.path.exists(path):
+                try:
+                    f = open(path, "rb"); opened_files.append(f)
+                    form.add_field(f"files[{idx}]", f, filename=fname)
+                except Exception as e:
+                    log(f"[ERROR] Cannot open {path}: {e}", "ERROR")
+            else:
+                log(f"[WARN] Image missing from disk: {path}", "WARN")
+
+        headers = uheaders(self.token); headers.pop("Content-Type", None)
+        status_code = 0; retry_after = 0
+        try:
+            async with session.post(f"{API}/channels/{cid}/messages", headers=headers, data=form,
+                                    timeout=aiohttp.ClientTimeout(total=120)) as r:
+                status_code = r.status
+                body = await r.text()
+                if r.status not in (200, 201):
+                    log(f"[POSTER] {cid} -> HTTP {r.status}: {body[:200]}", "ERROR")
+                if r.status == 429:
+                    try: retry_after = float(json.loads(body).get("retry_after", 5))
+                    except Exception: retry_after = float(r.headers.get("Retry-After", 60) or 60)
+        except Exception as e:
+            log(f"[POSTER] Upload failed ({cid}): {e}", "ERROR")
+            status_code = 0
+        finally:
+            for f in opened_files: f.close()
+        gc.collect()
+        return status_code, retry_after
+
     async def channel_loop(self, cid, slowmode):
+        interval = max(slowmode + 2, MIN_POST_INTERVAL)
+        fail_streak = 0
         async with aiohttp.ClientSession() as session:
             while self.running:
-                self.states[cid]["status"] = f"{emoji('loading')} Posting..."
-                self.states[cid]["wait"] = 0
+                st = self.states[cid]
+                st["status"] = f"{emoji('loading')} Posting..."; st["wait"] = 0
                 asyncio.create_task(self.update_embed())
-                
-                log(f"[POSTER] Preparing upload to {cid}...", "INFO")
-                form = aiohttp.FormData()
-                form.add_field("payload_json", json.dumps({"content": self.text or ""}), content_type="application/json")
-                
-                opened_files = []
-                if self.image_paths:
-                    for idx, (path, fname) in enumerate(zip(self.image_paths, self.image_filenames)):
-                        if os.path.exists(path):
-                            try:
-                                f = open(path, "rb"); opened_files.append(f)
-                                form.add_field(f"files[{idx}]", f, filename=fname)
-                            except Exception as e: log(f"[ERROR] Cannot open {path}: {e}", "ERROR")
-                        else:
-                            log(f"[WARN] Image missing from disk: {path}", "WARN")
-                            # Mag-send ng warning sa DM
-                            await self.owner.send(embed=discord.Embed(
-                                description=f"⚠️ **Image Missing:** `{fname}`\n\nNag-restart ang server (Render) at nabura ang files. Paki-`!updateposting` at i-attach ulit ang images para gumana.",
-                                color=0xe74c3c
-                            ))
 
-                headers = uheaders(self.token); headers.pop("Content-Type", None)
-                success = False; status_code = 500; retry_after = 0
-                
-                try:
-                    async with session.post(f"{API}/channels/{cid}/messages", headers=headers, data=form, timeout=aiohttp.ClientTimeout(total=120)) as r:
-                        success = (r.status in (200, 201)); status_code = r.status
-                        if not success:
-                            log(f"[POSTER] API returned {r.status}: {await r.text()}", "ERROR")
-                        if r.status == 429:
-                            try: retry_after = float(json.loads(await r.text()).get("retry_after", 5))
-                            except Exception: retry_after = 5
-                except Exception as e: 
-                    log(f"[ERROR] Upload failed: {e}", "ERROR")
-                finally:
-                    for f in opened_files: f.close()
-                gc.collect()
+                status_code, retry_after = await self._post_once(session, cid)
 
-                if success:
-                    self.states[cid]["posts"] += 1
-                    wait_time = slowmode + 2
-                    end_time = int(time.time()) + wait_time
-                    self.states[cid]["status"] = f"{emoji('lock')} Cooldown"
-                    self.states[cid]["wait"] = end_time
-                    await self.update_embed()
-                    await asyncio.sleep(wait_time)
-                    self.states[cid]["wait"] = 0
+                if status_code in (200, 201):
+                    fail_streak = 0
+                    st["posts"] += 1
+                    wait_time = interval + random.uniform(0, 3)
+                    st["status"] = f"{emoji('lock')} Cooldown"
+                    st["wait"] = int(time.time() + wait_time)
+                    await self.update_embed(force=True)
+                    await self._sleep(wait_time)
+
                 elif status_code == 429:
-                    self.states[cid]["status"] = f"{emoji('Verified')} Rate Limited"
-                    self.states[cid]["wait"] = int(time.time()) + int(retry_after)
-                    await self.update_embed()
-                    await asyncio.sleep(retry_after)
-                    self.states[cid]["wait"] = 0
-                else:
-                    self.states[cid]["status"] = f"{emoji('redcircle')} Failed (HTTP {status_code})"
-                    await self.update_embed()
+                    wait_time = min(max(retry_after, 5), 900)
+                    st["status"] = f"{emoji('warning')} Rate Limited"
+                    st["wait"] = int(time.time() + wait_time)
+                    await self.update_embed(force=True)
+                    await self._sleep(wait_time)
+
+                elif status_code in FATAL_CODES:
+                    st["status"] = f"{emoji('redcircle')} Stopped (HTTP {status_code})"
+                    await self.update_embed(force=True)
+                    try:
+                        await self.owner.send(embed=discord.Embed(
+                            description=f"🔴 Auto-poster stopped for <#{cid}> (HTTP {status_code}). "
+                                        f"Check the token / channel access, then `!resumeposting`.",
+                            color=0xe74c3c))
+                    except Exception: pass
                     break
+
+                else:
+                    # Network error / 5xx / unknown -> retry with backoff instead of dying
+                    fail_streak += 1
+                    wait_time = min(30 * (2 ** (fail_streak - 1)), 600)
+                    st["status"] = f"{emoji('redcircle')} Retrying (HTTP {status_code or 'net'})"
+                    st["wait"] = int(time.time() + wait_time)
+                    await self.update_embed(force=True)
+                    await self._sleep(wait_time)
+
+    async def _sleep(self, seconds):
+        """Sleep in small steps so stop commands take effect quickly."""
+        end = time.time() + seconds
+        while self.running and time.time() < end:
+            await asyncio.sleep(min(5, max(0.1, end - time.time())))
 
 class PosterSetupModal(discord.ui.Modal):
     token_input = discord.ui.TextInput(label='User Token', placeholder='Paste User Token here...', style=discord.TextStyle.short, required=True)
@@ -567,11 +677,11 @@ class PosterSetupModal(discord.ui.Modal):
         if cid2 and cid2.isdigit(): channels.append(cid2)
 
         if not channels: return await interaction.followup.send(embed=discord.Embed(title="Error", description="Invalid Channel ID.", color=0xe74c3c), ephemeral=True)
-        if not text and not self.image_urls and not (self.existing_data and self.existing_data.get("image_paths")): 
+        if not text and not self.image_urls and not (self.existing_data and self.existing_data.get("image_paths")):
             return await interaction.followup.send(embed=discord.Embed(title="Error", description="Need text or an image.", color=0xe74c3c), ephemeral=True)
 
         user_dir = os.path.join(POSTER_IMG_DIR, str(uid)); os.makedirs(user_dir, exist_ok=True)
-        image_paths = []; final_filenames = []
+        image_paths = []; final_filenames = []; image_msg_id = None
 
         if self.image_urls:
             async with aiohttp.ClientSession() as session:
@@ -581,28 +691,31 @@ class PosterSetupModal(discord.ui.Modal):
                         if r.status == 200:
                             with open(save_path, "wb") as f: f.write(await r.read())
                             image_paths.append(save_path); final_filenames.append(fname)
+            image_msg_id = await backup_images(image_paths, final_filenames)
         elif self.existing_data and self.existing_data.get("image_paths"):
             image_paths = self.existing_data["image_paths"]; final_filenames = self.existing_data.get("image_filenames", [])
+            image_msg_id = self.existing_data.get("image_msg_id")
 
         channel_data = {}
         async with aiohttp.ClientSession() as session:
             async with session.get(f"{API}/users/@me", headers=uheaders(token)) as r:
                 if r.status != 200: return await interaction.followup.send(embed=discord.Embed(title="Error", description="Invalid Token.", color=0xe74c3c), ephemeral=True)
                 user_data = await r.json()
-            
+
             for cid in channels:
                 async with session.get(f"{API}/channels/{cid}", headers=uheaders(token)) as r:
                     if r.status == 200: channel_data[cid] = (await r.json()).get("rate_limit_per_user", 0)
                     else: return await interaction.followup.send(embed=discord.Embed(title="Error", description=f"Cannot access channel {cid}.", color=0xe74c3c), ephemeral=True)
 
         await set_user_token(uid, token, user_data.get("username", "Unknown"))
-        conf = {"channels": channels, "text": text, "image_paths": image_paths, "image_filenames": final_filenames, "running": True, "created_at": time.time()}
+        conf = {"channels": channels, "text": text, "image_paths": image_paths, "image_filenames": final_filenames,
+                "image_msg_id": image_msg_id, "running": True, "created_at": time.time()}
         await set_poster_config(uid, conf)
-        
+
         if uid in ACTIVE_POSTERS: ACTIVE_POSTERS[uid].running = False
         task = PosterTask(interaction.user, channel_data, token, text, image_paths, final_filenames)
         ACTIVE_POSTERS[uid] = task
-        
+
         await interaction.followup.send(embed=discord.Embed(title="Success", description="Setup complete! Check DMs.", color=0x2ecc71), ephemeral=True)
         asyncio.create_task(task.start())
 
@@ -667,7 +780,7 @@ class AdminBoard:
                 lines.append(f"{emoji('statusonline30')} **{uname}** · `{sess.elapsed_str()}`")
                 lines.append(f"     `{sess.progress_bar(user_pct, 16)}` **{user_pct}%** · `{sess.done_count}/{sess.total}`")
                 lines.append(f"     {state_text}"); lines.append("")
-        lines.extend(["━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━", "", f"### {emoji('statusonline30')} Statistics", "", f"**Registered users:** `{len(_tokens_cache)}`"])
+        lines.extend(["━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━", "", f"### {emoji('statusonline30')} Statistics", "", f"**Registered users:** `{len(_tokens_cache)}`", f"**Active posters:** `{len(ACTIVE_POSTERS)}`"])
         return "\n".join(lines)
     async def update(self):
         view = self._build_view()
@@ -729,42 +842,70 @@ class QuestPanel(discord.ui.LayoutView):
 # ===== BOT =====
 intents = discord.Intents.default()
 intents.members = True; intents.message_content = True
-bot = commands.Bot(command_prefix="!", intents=intents)
+bot = commands.Bot(command_prefix="!", intents=intents, chunk_guilds_at_startup=False)
 _ready_done = False
+
+async def watchdog():
+    """Probe the Discord REST API. If it's dead for ~10 min, exit so Render restarts the service."""
+    fails = 0
+    while True:
+        await asyncio.sleep(120)
+        try:
+            await asyncio.wait_for(bot.application_info(), timeout=30)
+            STATE["last_ok"] = time.time(); fails = 0
+        except Exception as e:
+            fails += 1
+            log(f"[WATCHDOG] REST probe failed ({fails}/5): {type(e).__name__}: {e}", "WARN")
+            if fails >= 5:
+                log("[WATCHDOG] Discord unreachable for too long - restarting process.", "ERROR")
+                os._exit(1)
+
+async def resume_posters():
+    for uid_str, data in list(_tokens_cache.items()):
+        conf = data.get("poster_config")
+        if not (conf and conf.get("running")): continue
+        try:
+            user = await bot.fetch_user(int(uid_str))
+            channel_data = await fetch_slowmodes(data["token"], conf["channels"])
+            task = PosterTask(user, channel_data, data["token"], conf["text"],
+                              conf.get("image_paths", []), conf.get("image_filenames", []))
+            ACTIVE_POSTERS[int(uid_str)] = task
+            asyncio.create_task(task.start())
+            log(f"[AUTO-RESUME] Restarted poster for {user.name}", "INFO")
+            await asyncio.sleep(5)   # stagger users so they don't all hit the API at once
+        except Exception as e:
+            log(f"[AUTO-RESUME] Failed for {uid_str}: {e}", "ERROR")
 
 @bot.event
 async def on_ready():
     global _ready_done, SESSION_SEMAPHORE
     log(f"Bot ready: {bot.user}", "INFO")
+    STATE["ready"] = True; STATE["last_ok"] = time.time()
     if _ready_done: return
     _ready_done = True
     SESSION_SEMAPHORE = asyncio.Semaphore(MAX_CONCURRENT_SESSIONS)
     load_emojis()
     bot.add_view(QuestPanel())
-    
-    await sync_tokens_from_channel()
-    
-    for uid_str, data in _tokens_cache.items():
-        conf = data.get("poster_config")
-        if conf and conf.get("running"):
-            try:
-                user = await bot.fetch_user(int(uid_str))
-                channel_data = {cid: 0 for cid in conf["channels"]}
-                task = PosterTask(user, channel_data, data["token"], conf["text"], conf.get("image_paths", []), conf.get("image_filenames", []))
-                ACTIVE_POSTERS[int(uid_str)] = task
-                asyncio.create_task(task.start())
-                log(f"[AUTO-RESUME] Restarted poster for {user.name}", "INFO")
-            except Exception as e:
-                log(f"[AUTO-RESUME] Failed for {uid_str}: {e}", "ERROR")
 
+    await sync_tokens_from_channel()
     await bot.change_presence(activity=build_bot_activity())
 
+    asyncio.create_task(watchdog())
+    asyncio.create_task(resume_posters())
+
+# NOTE: on_disconnect was REMOVED on purpose. It fires on every normal gateway
+# reconnect and used to stop all posters/sessions permanently.
+
 @bot.event
-async def on_disconnect():
-    for uid, s in list(ACTIVE_SESSIONS.items()): s.running = False
-    for uid, s in list(ACTIVE_POSTERS.items()): s.running = False
+async def on_resumed():
+    STATE["ready"] = True
+    log("Gateway session resumed.", "INFO")
 
 # ================= PREFIX COMMANDS =================
+@bot.command(name="ping")
+async def ping_cmd(ctx):
+    await ctx.send(f"pong · latency `{round(bot.latency * 1000)}ms` · posters `{len(ACTIVE_POSTERS)}`")
+
 @bot.command(name="posting")
 async def posting(ctx):
     image_urls, image_filenames = [], []
@@ -789,7 +930,7 @@ async def checkposting(ctx):
     embed.add_field(name="Channels", value=", ".join([f"<#{c}>" for c in conf["channels"]]), inline=False)
     embed.add_field(name="Text", value=f"```{conf['text'][:100] or 'None'}```", inline=False)
     embed.add_field(name="Images Saved", value=f"`{len(conf.get('image_paths', []))}`", inline=True)
-    embed.add_field(name="Status", value="`Running`" if ctx.author.id in ACTIVE_POSTERS else "`Stopped`", inline=True)
+    embed.add_field(name="Status", value="`Running`" if ctx.author.id in ACTIVE_POSTERS and ACTIVE_POSTERS[ctx.author.id].running else "`Stopped`", inline=True)
     await ctx.reply(embed=embed)
 
 @bot.command(name="resumeposting")
@@ -798,16 +939,11 @@ async def resumeposting(ctx):
     conf = get_user_meta(uid).get("poster_config")
     if not conf: return await ctx.reply(embed=discord.Embed(description="❌ Wala kang naka-save na Auto-Poster. (Kung nasa channel naman, i-restart ang bot para mabasa).", color=0xe74c3c))
     if uid in ACTIVE_POSTERS and ACTIVE_POSTERS[uid].running: return await ctx.reply(embed=discord.Embed(description="✅ Naka-run na ang Auto-Poster mo.", color=0x2ecc71))
-    
-    conf["running"] = True; await set_poster_config(uid, conf)
-    channel_data = {}
-    async with aiohttp.ClientSession() as session:
-        for cid in conf["channels"]:
-            async with session.get(f"{API}/channels/{cid}", headers=uheaders(conf["token"])) as r:
-                if r.status == 200: channel_data[cid] = (await r.json()).get("rate_limit_per_user", 0)
-                else: channel_data[cid] = 0
 
-    task = PosterTask(ctx.author, channel_data, conf["token"], conf["text"], conf.get("image_paths", []), conf.get("image_filenames", []))
+    conf["running"] = True; await set_poster_config(uid, conf)
+    channel_data = await fetch_slowmodes(conf.get("token") or get_user_token(uid), conf["channels"])
+
+    task = PosterTask(ctx.author, channel_data, get_user_token(uid), conf["text"], conf.get("image_paths", []), conf.get("image_filenames", []))
     ACTIVE_POSTERS[uid] = task
     await ctx.reply(embed=discord.Embed(description="✅ **Auto-Poster Resumed!**", color=0x2ecc71))
     asyncio.create_task(task.start())
@@ -856,10 +992,10 @@ async def stopboard(ctx):
 async def settoken_cmd(ctx, token: str = None):
     if not isinstance(ctx.channel, discord.DMChannel):
         try: await ctx.message.delete()
-        except: pass
+        except Exception: pass
         return await ctx.author.send(embed=discord.Embed(description="**Privacy Notice:** Register via Direct Message.", color=0xf39c12))
     if not token: return await ctx.reply(embed=discord.Embed(description="**Usage:** `!settoken <token>`", color=0xf39c12))
-    
+
     async with aiohttp.ClientSession() as session:
         try:
             async with session.get(f"{API}/users/@me", headers=uheaders(token), timeout=aiohttp.ClientTimeout(total=10)) as r:
@@ -870,7 +1006,7 @@ async def settoken_cmd(ctx, token: str = None):
     username = user_data.get("username", "Unknown")
     await set_user_token(ctx.author.id, token, username=username)
     try: await ctx.message.delete()
-    except: pass
+    except Exception: pass
     await ctx.author.send(embed=discord.Embed(description=f"**Token Registered!**\nAccount: `{username}`\nYou can now use the panels.", color=0x2ecc71))
 
 @bot.command(name="removetoken")
@@ -923,21 +1059,25 @@ async def dmclear_cmd(ctx):
     notice = await ctx.send(embed=discord.Embed(description="Clearing messages...", color=0x3498db))
     deleted = await purge_dm_messages(ctx.channel)
     try: await notice.delete()
-    except: pass
+    except Exception: pass
     confirm = await ctx.send(embed=discord.Embed(description=f"Cleared `{deleted}` message(s).", color=0x2ecc71))
     await asyncio.sleep(3)
     try: await confirm.delete()
-    except: pass
+    except Exception: pass
 
 @bot.event
 async def on_command_error(ctx, error):
     if isinstance(error, commands.CommandNotFound): return
-    if isinstance(error, commands.MissingPermissions): return await ctx.reply(embed=discord.Embed(description="Need Manage Server permission.", color=0xe74c3c))
+    log(f"[CMD ERROR] {ctx.command}: {type(error).__name__}: {error}", "ERROR")
+    if isinstance(error, commands.MissingPermissions):
+        try: return await ctx.reply(embed=discord.Embed(description="Need Manage Server permission.", color=0xe74c3c))
+        except Exception: return
     try: await ctx.reply(embed=discord.Embed(description=f"**Error:** `{error}`", color=0xe74c3c))
-    except: pass
+    except Exception: pass
 
 # ===== MAIN =====
 if __name__ == "__main__":
     try:
         bot.run(BOT_TOKEN)
-    except KeyboardInterrupt: print("\nBot stopped.")
+    except KeyboardInterrupt:
+        print("\nBot stopped.", flush=True)
